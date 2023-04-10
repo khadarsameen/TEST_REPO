@@ -1,0 +1,2980 @@
+
+/**********************************************************************
+* © COPYRIGHT DHL 2006. ALL RIGHTS RESERVED. NO PART OF THIS SOURCE *
+* CODE MAY BE REPRODUCED,STORED IN A RETRIEVAL SYSTEM OR TRANSMITTED, *
+* IN ANY FORM BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTO COPYING, *
+* RECORDING OR OTHERWISE, WITHOUT THE PRIOR WRITTEN PERMISSION OF DHL *
+**********************************************************************/
+/**********************************************************************
+* Function Name: COMMON_CURR_CONVT_SF_Compute *
+* Description: This module will convert the shipment value based *
+* on the currency conversion table in database *
+* Version Date Author Description *
+* =============== =========== =========== ============================*
+* 1 21-08-2006 Ben Ng Initial *
+**********************************************************************/
+
+CREATE FUNCTION getDHLCurrentTime()
+RETURNS CHAR
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.dhlCurrentTime";
+
+CREATE FUNCTION getGMTCurrentTime()
+RETURNS CHAR
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.GMTCurrentTime";
+
+CREATE FUNCTION getDSTSCalendar(IN DSTDate CHARACTER, IN DSTDay CHARACTER)
+RETURNS CHAR
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.getDSTSCalendar";
+
+CREATE FUNCTION getLocalCalendar(IN DSTDate CHARACTER, IN OffSet CHARACTER)
+RETURNS CHAR
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.getLocalCalendar";
+
+CREATE FUNCTION getEpochTime()
+RETURNS CHARACTER
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.getEpochTime";
+
+CREATE FUNCTION getSeqNumber(IN url CHARACTER, IN user CHARACTER, IN pass CHARACTER, IN object CHARACTER)
+RETURNS CHARACTER
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.getSequence";
+
+CREATE FUNCTION matchRegularExpr(IN actual_value CHARACTER, IN match_value CHARACTER)
+RETURNS BOOLEAN
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.matchRegularExpr";
+
+CREATE FUNCTION getPrettyPrint( IN xml CHARACTER )
+RETURNS CHARACTER
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.getPrettyPrint";
+
+CREATE FUNCTION replaceAllPattern( IN inputString CHARACTER, IN pattern CHARACTER, IN replace CHARACTER)
+RETURNS CHARACTER
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.amg.common.DHLUtil.replaceAllPattern";
+
+CREATE PROCEDURE insertCache( IN cacheName CHARACTER, IN key CHARACTER, IN value CHARACTER)
+RETURNS BOOLEAN
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.dmg.insertCache";
+
+CREATE PROCEDURE readCache( IN cacheName CHARACTER, IN key CHARACTER)
+RETURNS CHARACTER
+LANGUAGE JAVA
+EXTERNAL NAME "com.dhl.dmg.readCache";
+/*************************************************************************
+* Function Name: fncGenerateMsgId *
+* Parameters: 1. Input Parameter: intMsgCntr,Type: Integer,having *
+* 1 as the initial value *
+* Description: Generates unique message id for the output messages *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 18-09-2006 Subhrangshu Das Initial *
+*************************************************************************/
+CREATE FUNCTION fncGenerateMsgId(intMsgCntr INTEGER) RETURNS CHARACTER
+BEGIN
+	--Declaring local variables
+	DECLARE chrTimestamp CHARACTER;
+	DECLARE chrMsgId CHARACTER;
+	DECLARE chrMsgTemp CHARACTER;
+	DECLARE intLength INTEGER;
+
+	SET chrTimestamp = SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(CAST(CURRENT_TIMESTAMP AS CHARACTER),'-'),' '),':'),'.') FROM 11 FOR 20);
+	SET chrMsgTemp = LEFT(CAST(intMsgCntr AS CHARACTER), 6);
+	--Generating the unique message id
+	SET chrMsgId = RIGHT(chrTimestamp,18) || REPLICATE('0',6-LENGTH(chrMsgTemp))
+	|| chrMsgTemp;
+
+	SET intLength = LENGTH(chrMsgId);
+	IF intLength < 24 THEN
+		SET chrMsgId = chrMsgId || REPLICATE('0', 24-intLength);
+	END IF;
+
+	RETURN chrMsgId;
+END;
+/*************************************************************************
+* Function Name: fncLeadZeroOffset *
+* Parameters: 1. Input Parameter: chrOff,Type: character *
+* Description: Add leading zero in offset *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 23-01-2018 Shalini Initial *
+*************************************************************************/
+CREATE FUNCTION fncLeadZeroOffset(chrOff CHARACTER) RETURNS CHARACTER
+BEGIN
+	IF chrOff <> '' THEN
+		IF STARTSWITH(chrOff,'-') AND LENGTH(chrOff) <> 6 THEN -- -4:00
+			SET chrOff = '-0' || SUBSTRING(chrOff FROM 2 FOR 4);
+
+		ELSEIF STARTSWITH(chrOff,'+') AND LENGTH(chrOff) <> 6 THEN -- +4:00
+			SET chrOff = '+0' || SUBSTRING(chrOff FROM 2 FOR 4);
+		ELSEIF LENGTH(chrOff) <> 6 THEN -- wont effect +08:00 / -09:00
+			IF LENGTH(chrOff) = 5 THEN -- 14:00
+				SET chrOff = '+' || chrOff; -- +14:00
+			ELSE -- 4:00
+				SET chrOff = '+0' || chrOff; -- +04:00
+			END IF;
+		END IF;
+	ELSE
+		SET chrOff = '+00:00';
+	END IF;
+
+	RETURN chrOff;
+END;
+
+/*************************************************************************
+* Function Name: fncConverToGMT *
+* Parameters: 1. Input Parameter: strGMTUnit,Type: CHAR *
+* GMT time int 15min unit *
+* Description: Convert to +08:00 format *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 19-10-2007 Wong Kong Yew Initial *
+*************************************************************************/
+CREATE FUNCTION fncConverToGMT(strGMTUnit CHAR) RETURNS CHARACTER
+BEGIN
+	DECLARE decGMT DECIMAL;
+	DECLARE decH INT;
+	DECLARE chrTemp CHAR;
+	DECLARE chrRem CHAR;
+
+	SET decGMT = CAST( strGMTUnit AS DECIMAL)/4;
+
+	IF (decGMT >= 0) THEN
+		SET decH = CAST(FLOOR(decGMT) AS INT);
+		SET chrTemp = CAST(decH AS CHAR);
+		IF (LENGTH(chrTemp)>1) THEN
+			SET chrTemp = '+' || chrTemp;
+		ELSE
+			SET chrTemp = '+0' || chrTemp;
+		END IF;
+	ELSE
+		SET decH = ABS(CAST(CEIL(decGMT) AS INT));
+		SET chrTemp = CAST(decH AS CHAR);
+		IF (LENGTH(chrTemp)>1) THEN
+			SET chrTemp = '-' || chrTemp;
+		ELSE
+			SET chrTemp = '-0' || chrTemp;
+		END IF;
+	END IF;
+
+	SET chrRem = CAST( CAST( ((ABS(decGMT)-CAST(decH AS DECIMAL))*60) AS INT) AS CHAR);
+	IF (LENGTH(chrRem) <2) THEN
+		SET chrRem = chrRem || '0';
+	END IF;
+
+	SET chrTemp = chrTemp || ':' || chrRem;
+
+	RETURN chrTemp;
+END;
+/*************************************************************************
+* Function Name: fncConverFromGMT *
+* Parameters: 1. Input Parameter: chrMTUnit,Type: CHAR *
+* *
+* Description: Convert to 15 mint unit *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 04-09-2008 Lawrence Tan Initial *
+*************************************************************************/
+CREATE FUNCTION fncConverFromGMT(chrGMTUnit CHAR) RETURNS CHARACTER
+BEGIN
+	DECLARE decHH,decMM DECIMAL;
+	DECLARE chrTotal CHARACTER;
+	DECLARE decTotal DECIMAL;
+
+	SET decHH = CAST(SUBSTRING(chrGMTUnit FROM 1 FOR POSITION(':' IN chrGMTUnit)-1) AS DECIMAL);
+	SET decMM = CAST(SUBSTRING(chrGMTUnit FROM POSITION(':' IN chrGMTUnit)+1 FOR 2) AS DECIMAL);
+	SET decTotal = ((decHH * 60) + decMM) / 15;
+	SET chrTotal = CAST(decTotal AS CHARACTER);
+
+	IF decTotal < 0 THEN
+		IF LENGTH(chrTotal)=2 THEN
+			SET chrTotal = '-0' || SUBSTRING(chrTotal FROM 2 FOR 1);
+		END IF;
+	ELSE
+		IF LENGTH(chrTotal)=1 THEN
+			SET chrTotal = '+0' || chrTotal;
+		ELSE
+
+			IF chrTotal = '0.0' THEN
+				SET chrTotal = '+00';
+			ELSE
+				SET chrTotal = '+' || chrTotal;
+			END IF;
+		END IF;
+	END IF;
+	RETURN chrTotal;
+END;
+/*************************************************************************
+* Function Name: fncConvertDHLWeightToDecimal *
+* Parameters: 1. Input Parameter: strWeight,Type: CHAR *
+* Value with implied 2 decimal point *
+* Description: Return the correct decimal value *
+* 2 decimal digit. eg. 122.1 - 12210 *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 24-09-2008 Wong Kong Yew Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertDHLWeightToDecimal(strWeight CHAR) RETURNS CHARACTER
+BEGIN
+	DECLARE intLength, intPos, intCount INT;
+	DECLARE decVal DECIMAL;
+	DECLARE strVal CHAR;
+
+	IF (LENGTH(TRIM(strWeight)) < 1) THEN
+		return '0';
+	END IF;
+
+	SET decVal = CAST(COALESCE(TRIM(strWeight), '0') as DECIMAL);
+
+	IF decVal < 1 THEN
+		return '0';
+	END IF;
+
+	SET strVal = CAST(ROUND(decVal/100, 2) as CHARACTER);
+	return strVal;
+
+END;
+/*************************************************************************
+* Function Name: fncConvertToDHLWeightFormat *
+* Parameters: 1. Input Parameter: strWeight,Type: CHAR *
+* Decimal weight format *
+* Description: Remove decimal point and provide implied *
+* 2 decimal digit. eg. 122.1 - 12210 *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 24-09-2008 Wong Kong Yew Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertToDHLWeightFormat(strWeight CHAR) RETURNS CHARACTER
+BEGIN
+	DECLARE intLength, intPos, intCount INT;
+	DECLARE decVal DECIMAL;
+	DECLARE strVal CHAR;
+
+	SET decVal = CAST(strWeight as DECIMAL);
+	SET strVal = CAST(decVal as CHARACTER);
+	--SET strVal = CAST(ROUND(decVal, 2) as CHARACTER);
+
+	SET intLength = LENGTH(strVal);
+
+	SET intPos = POSITION('.' IN strVal);
+	SET intCount = intLength-intPos;
+
+	IF intPos < 1 THEN
+		return strVal || '00';
+	ELSE
+		IF (intLength = intPos) THEN
+			return REPLACE(strVal, '.', '') || '00';
+		ELSEIF (intCount = 2) THEN
+			return REPLACE(strVal, '.', '');
+		ELSEIF intCount <2 THEN
+			return REPLACE(strVal, '.', '') || '0';
+		ELSE
+			return REPLACE(LEFT(strVal, intPos+2), '.', '');
+		END IF;
+	END IF;	
+	
+
+
+END;
+/*************************************************************************
+* Function Name: fncConvertToImpliedTwoDecimal *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* Decimal weight format *
+* Description: Remove decimal point and provide implied *
+* 1 decimal digit. eg. 122.10 - 1221 *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 07-10-2008 Wong Kong Yew Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertToImpliedTwoDecimal(strInputVal CHAR) RETURNS CHARACTER
+BEGIN
+	return fncConvertToDHLWeightFormat(strInputVal);
+END;
+
+/*************************************************************************
+* Function Name: fncConvertToGMTTime *
+* Parameters: 1. Input Parameter: strDateTime,Type: CHAR *
+* strServiceArea ,Type: CHAR *
+* Description: Get the GMT Offset by service area *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 30-12-2008 BEN Ng Initial *
+*************************************************************************/
+CREATE FUNCTION fncGetToGMTOffSet(strDateTime CHARACTER, strServiceArea CHARACTER) RETURNS CHARACTER
+BEGIN
+	DECLARE tstmpDateTime,tstmpDSTStartTime,tstmpDSTEndTime TIMESTAMP;
+	DECLARE chrTemp, chrResult CHARACTER;
+	DECLARE rowDatabaseData ROW;
+	DECLARE intPos, intYear INT;
+
+	SET tstmpDateTime = CAST(strDateTime AS TIMESTAMP FORMAT 'dd-MM-yyyy HH:mm:ss');
+	SET rowDatabaseData.TimeZone[] = (
+	SELECT S.GMT_OFFSET AS GMT_OFFSET, S.DST_START_DAY AS DST_START_DAY,
+	S.DST_START_FIRST AS DST_START_FIRST,
+	S.DST_END_DAY AS DST_END_DAY, S.DST_END_FIRST AS DST_END_FIRST,
+	S.DST_OFFSET AS DST_OFFSET,
+	S.DST_CHG_TIME AS DST_CHG_TIME FROM Database.TIME_ZONE as S, Database.SERVICE_AREA as D
+	WHERE S.TIME_ZONE_ID = D.TIME_ZONE_ID
+	AND D.SERVICE_AREA = strServiceArea
+	);	
+
+
+	IF rowDatabaseData.TimeZone.DST_START_FIRST IS NOT NULL AND
+		rowDatabaseData.TimeZone.DST_END_FIRST IS NOT NULL AND
+		rowDatabaseData.TimeZone.DST_OFFSET IS NOT NULL THEN
+		SET chrTemp = rowDatabaseData.TimeZone.DST_START_FIRST || '-' || CAST( tstmpDateTime AS CHARACTER FORMAT 'yyyy');
+
+		IF rowDatabaseData.TimeZone.DST_START_DAY IS NULL THEN
+			RETURN NULL;
+		END IF;
+
+		SET chrTemp = getDSTSCalendar(chrTemp,rowDatabaseData.TimeZone.DST_START_DAY);
+		SET chrTemp = chrTemp || ' ' || rowDatabaseData.TimeZone.DST_CHG_TIME || ':00';
+		SET tstmpDSTStartTime = CAST(chrTemp AS TIMESTAMP FORMAT 'dd-MM-yyyy HH:mm:ss');
+
+
+		SET chrTemp = rowDatabaseData.TimeZone.DST_END_FIRST || '-' || CAST( tstmpDateTime AS CHARACTER FORMAT 'yyyy');
+
+		IF rowDatabaseData.TimeZone.DST_END_DAY IS NULL THEN
+			RETURN NULL;
+		END IF;
+
+		SET chrTemp = getDSTSCalendar(chrTemp,rowDatabaseData.TimeZone.DST_END_DAY);
+		SET chrTemp = chrTemp || ' ' || rowDatabaseData.TimeZone.DST_CHG_TIME || ':00';
+		SET tstmpDSTEndTime = CAST(chrTemp AS TIMESTAMP FORMAT 'dd-MM-yyyy HH:mm:ss');
+
+		IF tstmpDSTEndTime < tstmpDSTStartTime THEN
+
+			IF tstmpDateTime > tstmpDSTStartTime OR
+				tstmpDateTime < tstmpDSTEndTime
+				THEN
+				SET chrResult = TRIM(CAST(rowDatabaseData.TimeZone.DST_OFFSET AS CHARACTER));
+			ELSE
+				SET chrResult = TRIM(CAST(rowDatabaseData.TimeZone.GMT_OFFSET AS CHARACTER));
+			END IF;
+
+		ELSE
+
+			IF tstmpDateTime > tstmpDSTStartTime AND
+				tstmpDateTime < tstmpDSTEndTime
+				THEN
+				SET chrResult = TRIM(CAST(rowDatabaseData.TimeZone.DST_OFFSET AS CHARACTER));
+			ELSE
+				SET chrResult = TRIM(CAST(rowDatabaseData.TimeZone.GMT_OFFSET AS CHARACTER));
+			END IF;
+		END IF;
+	ELSE
+		SET chrResult = TRIM(CAST(rowDatabaseData.TimeZone.GMT_OFFSET AS CHARACTER));
+	END IF;	
+	
+
+
+	IF LEFT(chrResult, 1) <> '-' THEN
+		SET chrResult = '+' || chrResult;
+	END IF;
+
+	SET intPos = POSITION(':' IN chrResult);
+
+	IF (intPos >0) THEN
+		IF (intPos <=3) THEN
+			IF LENGTH(chrResult) < 6 THEN
+				SET chrResult = SUBSTRING(chrResult FROM 1 FOR 1) || '0' || SUBSTRING(chrResult FROM 2 FOR 6);
+			END IF;
+		END IF;
+	ELSE
+		return NULL;
+	END IF;
+
+	return chrResult;
+END;
+
+/*************************************************************************
+* Function Name: fncConvertToImpliedOneDecimal *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* Decimal weight format *
+* Description: Remove decimal point and provide implied *
+* 1 decimal digit. eg. 122.10 - 1221 *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 07-10-2008 Wong Kong Yew Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertToImpliedOneDecimal(strInputVal CHAR) RETURNS CHARACTER
+BEGIN
+	DECLARE intLength INT;
+	DECLARE strVal CHAR;
+
+	SET strVal = fncConvertToDHLWeightFormat(strInputVal);
+
+	SET intLength = LENGTH(strVal);
+	IF intLength >1 THEN
+		return LEFT(strVal,intLength-1);
+	END IF;
+
+	return strVal;
+END;
+/*************************************************************************
+* Function Name: fncConvertLBToKG *
+* Parameters: 1. Input Parameter: Weight,Type: CHAR *
+* Decimal weight format *
+* Description: convert LB to KG & return in 3 dec point ex : 8.123 *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 18-01-2018 Shalini Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertLBToKG(Weight CHAR) RETURNS DECIMAL
+BEGIN
+	DECLARE floatWgt,calWgt DECIMAL;
+
+	SET calWgt = CAST(Weight AS DECIMAL) * (0.45359237);
+	SET floatWgt = ROUND(calWgt,3) ;
+
+	return floatWgt;
+END;
+/*************************************************************************
+* Function Name: fncRemoveLeadingZerosInt *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* value *
+* Description: Remove leading zeros from an Integer *
+* eg. 000122 - 122 *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 25-08-2008 Wong Kong Yew Initial *
+*************************************************************************/
+CREATE FUNCTION fncRemoveLeadingZerosInt(strInputVal CHAR) RETURNS CHARACTER
+BEGIN
+	DECLARE intValue INT;
+	DECLARE strVal CHAR;
+
+	SET strVal = TRIM(strInputVal);
+	IF (LENGTH(strVal) = 0) THEN
+		return strVal;
+	END IF;
+
+	SET intValue = CAST(strInputVal AS INTEGER);
+	SET strVal = CAST(intValue as CHAR);
+
+	return strVal;
+END;
+/*************************************************************************
+* Function Name: fncRemoveDuplicateQueues *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* Decimal weight format *
+* Description: Remove duplicate queues name *
+* 1 decimal digit. eg. 122.10 - 1221 *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 21-05-2009 Wong Kong Yew Initial *
+*************************************************************************/
+CREATE PROCEDURE fncRemoveDuplicateQueues(IN queue REFERENCE)
+BEGIN
+	DECLARE tempQueues ROW;
+	DECLARE intCount, i, j, curr INT;
+	DECLARE bAdd BOOLEAN;		
+
+
+	SET intCount = CARDINALITY(queue.DestinationData[]);
+	SET curr = 1;
+	SET i = 1;
+	WHILE i <= intCount DO
+
+		SET j = 1;
+		SET bAdd = true;
+		WHILE j < curr DO
+			IF tempQueues.DestinationData[j].queueName = queue.DestinationData[i].queueName THEN
+				SET bAdd = FALSE;
+			END IF;
+			SET j=j+1;
+		END WHILE;
+
+		IF bAdd THEN
+			SET tempQueues.DestinationData[curr].queueName = queue.DestinationData[i].queueName;
+			SET curr = curr + 1;
+		END IF;
+
+		SET i = i + 1;
+	END WHILE;
+
+	SET queue.DestinationData[] = tempQueues.DestinationData[];
+END;
+/*************************************************************************
+* Function Name: fncConvertToConfigurableDecimal *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* maxDecPoint, Type: INTEGER *
+maxDec, Type: INTEGER *
+* Description: Convert Decimal to a configurable decimal point *
+and the number of digit *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 17-03-2010 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertToConfigurableDecimal(strInputVal CHARACTER, maxDecPoint INTEGER, maxDec INTEGER) RETURNS CHARACTER
+BEGIN
+	DECLARE decValue DECIMAL;
+	DECLARE intValue INTEGER;
+	DECLARE intPadding INTEGER 1;
+
+	SET decValue = CAST(strInputVal AS DECIMAL);
+	SET decValue = ROUND(decValue,maxDecPoint);
+	SET strInputVal = CAST(decValue AS CHARACTER);
+	SET intValue = POSITION('.' IN strInputVal);
+	IF intValue > 0 THEN
+		IF intValue > (maxDec + 1) THEN
+			SET strInputVal = '';
+			WHILE intPadding <= maxDec DO
+				SET strInputVal = strInputVal || '9';
+				SET intPadding = intPadding + 1;
+			END WHILE;
+		ELSE
+			SET strInputVal = SUBSTRING(strInputVal FROM 1 FOR maxDec);
+			SET intValue = POSITION('.' IN strInputVal);
+			IF intValue = maxDec THEN
+				SET strInputVal = SUBSTRING(strInputVal FROM 1 FOR (maxDec - 1));
+			END IF;
+		END IF;
+	ELSE
+		IF LENGTH(strInputVal) > maxDec THEN
+			SET strInputVal = '';
+			WHILE intPadding <= maxDec DO
+				SET strInputVal = strInputVal || '9';
+				SET intPadding = intPadding + 1;
+			END WHILE;
+		END IF;
+	END IF;
+
+	return strInputVal;
+END;
+/*************************************************************************
+* Function Name: fncRetrieveLatestCurrency *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* Description: Retrieve *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 17-03-2010 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncRetrieveLatestCurrency(IN strInputVal CHARACTER, IN serviceAreaInfo REFERENCE)
+BEGIN
+	DECLARE latestSVCInfoROW ROW;
+
+	SET latestSVCInfoROW.serviceArea[] = PASSTHRU('SELECT SS.SERVICE_AREA, SS.REGION, SS.COUNTRY, SS.CURRENCY, SS.EXCHANGE_RATE, SS.DECIMAL_PT, SS.TIME_ZONE_ID, SS.TIMESTAMP FROM SERVICE_AREA SS WHERE SS.CURRENCY = TRIM(?) AND SS.TIMESTAMP IS NOT NULL ORDER BY SS.TIMESTAMP DESC' VALUES (strInputVal));
+
+	SET serviceAreaInfo.serviceArea[1] = latestSVCInfoROW.serviceArea[1];
+END;
+/*************************************************************************
+* Function Name: fncCheckRouteSubs *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* Description: Retrieve *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 15-06-2011 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncCheckRouteSubs(InputMessage REFERENCE, RouteSubRow REFERENCE, chrRouteSubsName CHAR, chrFlowName CHAR) RETURNS BOOLEAN
+BEGIN
+	DECLARE chrTemp ROW;
+	DECLARE intTempM, intTempN, intPosition, intTempI, intTempJ, intPositionAtt INTEGER;
+	DECLARE chrXPath, chrXPathAtt, chrXPath2Value, chrActFilterValue, chrFilterValue, chrFilterValue2 CHARACTER;
+	DECLARE chrXPathElement, chrXPath2MultiTag, chrXPathAttribute, chrXPath2Attribute CHARACTER;
+	DECLARE chrEmptySpace CHARACTER '';
+	-- TSW Start Fix for XML Tag not available 9-8-2012
+	DECLARE chrXPathAttVal, chrXPathVal CHARACTER;
+	-- TSW end Fix for XML Tag not available 9-8-2012
+	-- TSW Start Fix for XML Tag not available 14-8-2012
+	DECLARE XPathFound BOOLEAN FALSE;
+	-- TSW Start Fix for XML Tag not available 14-8-2012
+
+	SET chrTemp.data[] =
+	(
+	SELECT R.ROUTE_TYPE, R.ROUTE_VALUE
+	from RouteSubRow.RouteSubs[] as R
+	WHERE TRIM(R.ROUTE_SUBS) = TRIM(chrRouteSubsName)
+	AND TRIM(R.MSGFLOW) = TRIM(chrFlowName)
+	);
+
+	IF CARDINALITY(chrTemp.data[]) > 0 THEN
+		SET intTempM = 1;
+		SET intTempN = CARDINALITY(chrTemp.data[]);
+
+		WHILE intTempM <= intTempN DO
+
+			DECLARE refRouteSubs REFERENCE TO chrTemp.data[intTempM];
+
+			SET chrFilterValue = COALESCE(TRIM(refRouteSubs.ROUTE_VALUE),'');
+			SET chrFilterValue = chrFilterValue || '%';
+			SET chrXPath = COALESCE(TRIM(refRouteSubs.ROUTE_TYPE),'');
+			SET intPosition = POSITION('=' IN chrXPath);
+
+			IF intPosition > 0 THEN
+				SET intPositionAtt = POSITION('@' IN chrXPath);
+				IF intPositionAtt > 0 THEN
+					SET chrXPath2Value = SUBSTRING(chrXPath AFTER '=');
+					SET chrXPathAtt = SUBSTRING(chrXPath BEFORE '=');
+					SET chrXPathAtt = SUBSTRING(chrXPathAtt AFTER '@');
+					SET chrXPathElement = SUBSTRING(chrXPath BEFORE '@');
+					SET chrXPathElement = REPLACE(chrXPathElement,'/','.');
+
+					SET intTempI = 1;
+					SET intTempJ = EVAL('CARDINALITY(InputMessage.XML' || chrXPathElement || '[])');
+					-- TSW Start Fix for XML Tag not available 14-8-2012
+					-- SET intTempJ = COALESCE(TRIM(intTempJ),0);
+					SET XPathFound = FALSE;
+					-- TSW Start Fix for XML Tag not available 14-8-2012
+
+					WHILE intTempI <= intTempJ DO
+						-- TSW Start Fix for XML Tag not available 9-8-2012
+						SET chrXPathAttVal = EVAL('COALESCE(TRIM(InputMessage.XML'|| chrXPathElement ||'[intTempI].(XML.Attribute)' || chrXPathAtt || '),chrEmptySpace)');
+						SET chrXPathAttVal = COALESCE(TRIM(chrXPathAttVal),'');
+						SET chrXPathVal = EVAL('COALESCE(TRIM(InputMessage.XML'|| chrXPathElement ||'[intTempI].(XML.Attribute)AttVal' || '),chrEmptySpace)');
+						SET chrXPathVal = COALESCE(TRIM(chrXPathVal),'');
+						-- TSW end Fix for XML Tag not available 9-8-2012
+						IF chrXPathAttVal = TRIM(chrXPath2Value) THEN
+							-- TSW Start Fix for XML Tag not available 14-8-2012
+							SET XPathFound = TRUE;
+							-- TSW end Fix for XML Tag not available 14-8-2012
+							IF chrXPathVal NOT LIKE chrFilterValue THEN
+								RETURN TRUE;
+							END IF;
+						END IF;
+						SET intTempI = intTempI + 1;
+					END WHILE;
+					-- TSW Start Fix for XML Tag not available 14-8-2012
+					IF XPathFound = FALSE THEN
+						RETURN TRUE;
+					END IF;
+					-- TSW end Fix for XML Tag not available 14-8-2012
+				END IF;
+			ELSE
+				SET chrXPath = REPLACE(chrXPath,'/','.');
+				SET chrXPath = REPLACE(chrXPath,'@','.(XML.Attribute)');
+				SET chrActFilterValue = EVAL('COALESCE(TRIM(InputMessage.XML' || chrXPath || '),' || chrEmptySpace || ')');
+				SET chrActFilterValue = COALESCE(TRIM(chrActFilterValue),'');
+
+				IF chrActFilterValue NOT LIKE chrFilterValue THEN
+					RETURN TRUE;
+				END IF;
+			END IF;
+
+			SET intTempM = intTempM + 1;
+		END WHILE;
+
+		RETURN FALSE;
+	ELSE
+		RETURN FALSE;
+	END IF;
+END;
+/*************************************************************************
+* Function Name: fncConvertToRoundingOneDecimal *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* Decimal weight format *
+* Description: Remove decimal point and provide rounding *
+* 1 decimal digit. eg. 122.55 - 1226 *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 26-08-2011 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertToRoundingOneDecimal(strInputVal CHAR) RETURNS CHARACTER
+BEGIN
+	DECLARE strVal CHAR;
+	DECLARE decVal DECIMAL;
+
+	SET decVal = CAST(strInputVal AS DECIMAL);
+	SET decVal = ROUND(decVal, 1 MODE ROUND_HALF_UP);
+
+	SET strVal = CAST(decVal AS CHARACTER);
+	SET strVal = REPLACE(strVal, '.', '');
+
+	return strVal;
+END;
+/*************************************************************************
+* Function Name: fncGenEvtSegmentMsg *
+* Parameters: 1. Input Parameter: strEvtSegmentSeq ,Type: CHAR *
+* refInputMsg, Type: REFERENCE *
+* refChkptMap, Type: REFERENCE *
+* refDataMap, Type: REFERENCE *
+* Sample Command: gncGenEvtSegmentMsg('1',InputRoot.XML, rowCheckMaster, rowDataMapping);
+* Description: Generate Event Segment Message based on *
+CHECKPOINT_MASTER *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 08-10-2012 Tan Sze Wee Initial *
+*************************************************************************/
+
+CREATE FUNCTION fncGenEvtSegmentMsg(strEvtSegmentSeq CHARACTER, refInputMsg REFERENCE, refChkptMap REFERENCE, refDataMap REFERENCE) RETURNS CHARACTER
+BEGIN
+	DECLARE intFieldSeq, intFieldPriority INTEGER 1;
+	DEcLARE intActNo, intCurNo INTEGER;
+	DECLARE strEventSegmentMsg CHARACTER;
+	DECLARE rowFieldSegInfo ROW;
+	DECLARE strSlash CHARACTER '/';
+	DECLARE strDot CHARACTER '.';
+	DECLARE strXML CHARACTER '.XML.';
+	DECLARE strInputRootXML CHARACTER 'refInputMsg.';
+	DECLARE strXMLDot CHARACTER 'XML.';
+	DECLARE strStartSymb CHARACTER '[';
+	DECLARE strEndSymb CHARACTER ']';
+	DECLARE strQuery CHARACTER;
+
+	SET strEventSegmentMsg = '';
+
+	PROCESS: WHILE TRUE DO
+
+		SET rowFieldSegInfo.FieldInfo[] = (
+		SELECT CM.LOOKUP_FIELD, CM.TARGET_FIELD, CM.DEFAULT_VALUE, CM.MAX_LENGTH, CM.EVT_FIELD_DELIMITER,
+		CM.SPECIAL_LOOKUP_FIELD, CM.DATAMAPPING_KEY, CM.SPECIAL_FUNCTION, CM.EVT_FIELD_PRIORITY, CM.MAX_LENGTH_EXCEPTION_ENABLE, CM.TRIM_CONFIG
+		FROM refChkptMap.CheckpointMaster[] AS CM
+		WHERE CM.EVT_FIELD_SEQ = CAST(intFieldSeq AS CHARACTER)
+		AND CM.EVT_SEGMENT_SEQ = strEvtSegmentSeq
+		);
+
+		IF CARDINALITY(rowFieldSegInfo.FieldInfo[]) <= 0 THEN
+			LEAVE PROCESS;
+		END IF;
+
+		DECLARE strTmpFieldVal CHARACTER;
+
+		SET intActNo = CARDINALITY(rowFieldSegInfo.FieldInfo[]);
+		SET intCurNo = 1;
+		SET intFieldPriority = 1;
+
+		PROCESS2: WHILE intCurNo <= intActNo DO
+
+			SET rowFieldSegInfo.FieldPriorityInfo[] = (
+			SELECT CP.LOOKUP_FIELD, CP.TARGET_FIELD, CP.DEFAULT_VALUE, CP.MAX_LENGTH,
+			CP.SPECIAL_LOOKUP_FIELD, CP.DATAMAPPING_KEY, CP.SPECIAL_FUNCTION, CP.EVT_FIELD_DELIMITER, CP.MAX_LENGTH_EXCEPTION_ENABLE, CP.TRIM_CONFIG
+			FROM rowFieldSegInfo.FieldInfo[] AS CP
+			WHERE TRIM(CP.EVT_FIELD_PRIORITY) = CAST(intFieldPriority AS CHARACTER)
+			);
+
+			SET strTmpFieldVal = '';
+
+			IF CARDINALITY(rowFieldSegInfo.FieldPriorityInfo[]) > 0 THEN
+				-- Derive Value from the field based on the condition
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.LOOKUP_FIELD),'') = '' AND COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TARGET_FIELD),'') = '' AND COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_LOOKUP_FIELD),'') = '' THEN
+
+					SET strTmpFieldVal = COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.DEFAULT_VALUE),'');
+
+					SET strQuery = strTmpFieldVal;
+
+				ELSEIF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_LOOKUP_FIELD),'') <> '' THEN
+
+					DECLARE strSpecialLookupField CHARACTER;
+					SET strSpecialLookupField = TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_LOOKUP_FIELD);
+					SET strSpecialLookupField = REPLACE(strSpecialLookupField, strXMLDot, strInputRootXML);
+					SET strTmpFieldVal = EVAL(TRIM(strSpecialLookupField));
+					SET strTmpFieldVal = COALESCE(TRIM(strTmpFieldVal),'');
+
+					SET strQuery = TRIM(strSpecialLookupField);
+
+				ELSEIF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.LOOKUP_FIELD),'') = '' AND COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TARGET_FIELD),'') <> '' THEN
+					-- Perform getting value from TARGET_FIELD which without doing any checking
+					DECLARE strTargetField CHARACTER;
+					SET strTargetField = COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TARGET_FIELD),'');
+					SET strTargetField = REPLACE(strTargetField, strSlash, strDot);
+					SET strTargetField = REPLACE(strTargetField, strXML, strInputRootXML);
+					SET strTmpFieldVal = EVAL(strTargetField);
+					SET strTmpFieldVal = COALESCE(TRIM(strTmpFieldVal),'');
+
+					SET strQuery = strTargetField;
+
+				ELSEIF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.LOOKUP_FIELD),'') <> '' AND COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TARGET_FIELD),'') = '' THEN
+					-- Perform normal lookup function with checking
+					DECLARE strFromCharacter, strLookupField, strEvalLookupField, strLookupFieldSelect, strLookupFieldFrom, strLookupFieldWhere CHARACTER '';
+					DECLARE strLookupFieldSelectVal, strLookupFieldFromVal, strLookupFieldWhereVal CHARACTER '';
+					DECLARE strComma CHARACTER ',';
+					DECLARE intFromVariable INTEGER 1;
+					DECLARE strLookupFieldValue CHARACTER;
+
+					SET strLookupFieldSelect = 'SELECT ITEM ';
+					SET strLookupFieldFrom = ' FROM ';
+					SET strLookupFieldWhere = ' WHERE ';
+					SET strLookupField = COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.LOOKUP_FIELD),'');
+					SET strLookupField = REPLACE(strLookupField, strSlash, strDot);
+					-- refInputMsg."n1:EvtMsg".Bd.BOEvt[Cd='CommonGrp'].Evt[Cd='DstSrvaCd'].Val
+					SET strLookupField = REPLACE(strLookupField, strXML, strInputRootXML);
+
+					WHILE POSITION(strStartSymb IN strLookupField) > 0 DO
+						SET strFromCharacter =
+						CASE CAST(intFromVariable AS CHARACTER)
+						WHEN '1' THEN 'A'
+						WHEN '2' THEN 'B'
+						WHEN '3' THEN 'C'
+						WHEN '4' THEN 'D'
+						WHEN '5' THEN 'E'
+						WHEN '6' THEN 'F'
+						WHEN '7' THEN 'G'
+						WHEN '8' THEN 'H'
+						WHEN '9' THEN 'I'
+						END;
+						SET intFromVariable = intFromVariable + 1;
+
+						SET strLookupFieldFromVal = strLookupFieldFromVal || TRIM(SUBSTRING( strLookupField BEFORE strStartSymb )) || '[] AS ' || strFromCharacter || strComma;
+						SET strLookupField = TRIM(SUBSTRING(strLookupField AFTER strStartSymb));
+						SET strLookupFieldWhereVal = strLookupFieldWhereVal || strFromCharacter || '.' || TRIM(SUBSTRING (strLookupField BEFORE strEndSymb)) || ' AND ';
+						SET strLookupField = strFromCharacter || TRIM(SUBSTRING(strLookupField AFTER strEndSymb));
+
+					END WHILE;
+
+					SET strLookupFieldSelect = strLookupFieldSelect || strLookupField;
+					SET strLookupFieldFrom = strLookupFieldFrom || SUBSTRING(strLookupFieldFromVal FROM 1 FOR (POSITION(strComma IN strLookupFieldFromVal REPEAT -1)-1));
+					SET strLookupFieldWhere = strLookupFieldWhere || SUBSTRING(strLookupFieldWhereVal FROM 1 FOR (POSITION('AND' IN strLookupFieldWhereVal REPEAT -1)-1));
+
+					SET strEvalLookupField = strLookupFieldSelect || strLookupFieldFrom || strLookupFieldWhere;
+
+					SET strLookupFieldValue = EVAL('THE(' || TRIM(strEvalLookupField) || ')');
+					SET strLookupFieldValue = COALESCE(TRIM(strLookupFieldValue),'');
+
+					SET strTmpFieldVal = strLookupFieldValue;
+
+					SET strQuery = TRIM(strEvalLookupField);
+
+				ELSE
+					SET strTmpFieldVal = '';
+				END IF;
+				-- Check value against DATAMAPPING_TABLE
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.DATAMAPPING_KEY),'') <> '' THEN
+					SET strTmpFieldVal = COALESCE(TRIM(THE(SELECT ITEM DM.TO_VAL FROM refDataMap.DataMapping[] AS DM WHERE TRIM(DM.FROM_VAL) = strTmpFieldVal)),strTmpFieldVal);
+				END IF;
+				-- Check if the field need to trigger special function to perform data manipulation
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'') <> '' THEN
+					-- Special Function to populate Scope Flag based on shipment or piece
+					IF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CHECKSCOPEFLAG') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							IF POSITION( 'PcsId' IN strQuery ) > 0 THEN
+								SET strTmpFieldVal = 'P';
+							ELSEIF POSITION( 'ShpId' IN strQuery ) > 0 THEN
+								SET strTmpFieldVal = 'S';
+							END IF;
+						END IF;
+					END IF;
+					-- Special Function to round the value to 3 decimal point
+					IF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('ROUNDTO3DECIMAL') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = CAST(ROUND(CAST(strCharacter AS DECIMAL), 3) AS CHARACTER);
+						END IF;
+					END IF;
+					-- Special Function to round the value to 2 decimal point
+					IF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('ROUNDTO2DECIMAL') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = CAST(ROUND(CAST(strCharacter AS DECIMAL), 2) AS CHARACTER);
+						END IF;
+					END IF;
+					-- Perform Date Time convertion to the local Date time based on the GMTOffSet
+					IF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('GETLOCALCALENDAR') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE chrSrcDtmFormat CHARACTER 'yyyy-MM-dd HH:mm:ss';
+							DECLARE chrTargetDtmFormat CHARACTER 'dd-MM-yyyy HH:mm:ss';
+							DECLARE chrDtm, chrGmtOff CHARACTER;
+							-- Sample Incoming Dtm = 2012-12-17T09:30:47+08:00
+							SET chrDtm = CAST(CAST(REPLACE(SUBSTRING(COALESCE(TRIM(strTmpFieldVal),'') FROM 1 FOR 19) ,'T' ,' ') AS TIMESTAMP FORMAT chrSrcDtmFormat) AS CHARACTER FORMAT chrTargetDtmFormat);
+							SET chrGmtOff = SUBSTRING(COALESCE(TRIM(strTmpFieldVal),'') FROM 20 FOR 6);
+							SET chrDtm = getLocalCalendar(chrDtm, chrGmtOff);
+
+							SET strTmpFieldVal = COALESCE(TRIM(chrDtm),'') || COALESCE(TRIM(chrGmtOff),'');
+						END IF;
+					END IF;
+				END IF;
+				-- Set the temp value into the strTmpFieldVal IF MAX_LENGTH got value perform truncate, Else set the value without truncate
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH),'') <> '' THEN
+					-- Throw exception if the length of incoming value larger than the MAX_LENGTH (when it is define)
+					IF (COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH_EXCEPTION_ENABLE),'N') = 'Y') AND (LENGTH(strTmpFieldVal) > CAST(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH AS INTEGER)) THEN
+						THROW USER EXCEPTION VALUES ('Length Exceed!! Value="' || strTmpFieldVal || '". Max length is ' || rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH );
+					END IF;
+					-- Perform Left or Right Trim. Default is L
+					IF (COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TRIM_CONFIG),'L') = 'R') THEN
+						SET strTmpFieldVal = RIGHT(strTmpFieldVal,CAST(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH AS INTEGER));
+					ELSE
+						SET strTmpFieldVal = LEFT(strTmpFieldVal,CAST(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH AS INTEGER));
+					END IF;
+				END IF;
+
+			ELSE
+				LEAVE PROCESS2;
+			END IF;
+
+			IF COALESCE(TRIM(strTmpFieldVal),'') <> '' OR intCurNo >= intActNo THEN
+				-- Set the delimeter after each field value
+				SET strTmpFieldVal = strTmpFieldVal || COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.EVT_FIELD_DELIMITER),'');
+				LEAVE PROCESS2;
+			END IF;
+
+			SET intCurNo = intCurNo + 1;
+			SET intFieldPriority = intFieldPriority + 1;
+		END WHILE;
+
+		SET strEventSegmentMsg = strEventSegmentMsg || strTmpFieldVal;
+
+		SET intFieldSeq = intFieldSeq + 1;
+	END WHILE;
+
+	RETURN strEventSegmentMsg;
+END;
+/*************************************************************************
+* Function Name: fncRemoveDuplicateQueuesAndInfo *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* *
+* Description: Remove duplicate queues name *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 23-10-2012 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE PROCEDURE fncRemoveDuplicateQueuesAndInfo(IN queue REFERENCE)
+BEGIN
+	DECLARE tempQueues ROW;
+	DECLARE intCount, i, j, curr INT;
+	DECLARE bAdd BOOLEAN;		
+
+
+	SET intCount = CARDINALITY(queue.DestinationData[]);
+	SET curr = 1;
+	SET i = 1;
+	WHILE i <= intCount DO
+
+		SET j = 1;
+		SET bAdd = true;
+		WHILE j < curr DO
+			IF tempQueues.DestinationData[j].queueName = queue.DestinationData[i].queueName THEN
+				SET bAdd = FALSE;
+			END IF;
+			SET j=j+1;
+		END WHILE;
+
+		IF bAdd THEN
+			SET tempQueues.DestinationData[curr] = queue.DestinationData[i];
+			SET curr = curr + 1;
+		END IF;
+
+		SET i = i + 1;
+	END WHILE;
+
+	SET queue.DestinationData[] = tempQueues.DestinationData[];
+END;	
+/*************************************************************************
+* Function Name: fncCheckRouteSubsXPath *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* Description: Retrieve *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 29-11-2012 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncCheckRouteSubsXPath(InputMessage REFERENCE, RouteSubRow REFERENCE, chrRouteSubsName CHAR, chrFlowName CHAR) RETURNS BOOLEAN
+BEGIN
+	DECLARE chrTemp ROW;
+	DECLARE chrXPath, chrInValue, chrXPathValue CHARACTER;
+	DECLARE intCurTemp, intActTemp INTEGER;
+	DECLARE strStartSymb CHARACTER '[';
+	DECLARE strEndSymb CHARACTER ']';
+	DECLARE strSlash CHARACTER '/';
+	DECLARE strDot CHARACTER '.';
+	DECLARE strXML CHARACTER '.XML.';
+	DECLARE strMRM CHARACTER '.MRM.';
+	DECLARE strXMLNSC CHARACTER '.XMLNSC.';
+	DECLARE strInputRootXML CHARACTER 'InputMessage.XML.';
+	DECLARE strInputRootMRM CHARACTER 'InputMessage.MRM.';
+	DECLARE strInputRootXMLNSC CHARACTER 'InputMessage.XMLNSC.';
+	DECLARE strSpecialLookup CHARACTER 'CHECK:';
+
+	SET chrTemp.data[] =
+	(
+	SELECT R.ROUTE_TYPE, R.ROUTE_VALUE
+	from RouteSubRow.RouteSubs[] as R
+	WHERE TRIM(R.ROUTE_SUBS) = TRIM(chrRouteSubsName)
+	AND TRIM(R.MSGFLOW) = TRIM(chrFlowName)
+	);
+
+	IF CARDINALITY(chrTemp.data[]) > 0 THEN
+		SET intCurTemp = 1;
+		SET intActTemp = CARDINALITY(chrTemp.data[]);
+
+		WHILE intCurTemp <= intActTemp DO
+
+			SET chrXPath = COALESCE(TRIM(chrTemp.data[intCurTemp].ROUTE_TYPE),'');
+			SET chrXPathValue = COALESCE(TRIM(chrTemp.data[intCurTemp].ROUTE_VALUE),'');
+			-- IF POSITION(strSpecialLookup IN chrXPath) > 0 THEN
+			IF STARTSWITH(chrXPath, strSpecialLookup) THEN
+				SET chrXPath = SUBSTRING(chrXPath AFTER strSpecialLookup);
+				SET chrInValue = COALESCE(TRIM(EVAL(chrXPath)),'');
+			ELSEIF POSITION(strStartSymb IN chrXPath) > 0 THEN
+				-- Perform normal lookup function with checking
+				DECLARE strFromCharacter, strLookupField, strEvalLookupField, strLookupFieldSelect, strLookupFieldFrom, strLookupFieldWhere CHARACTER '';
+				DECLARE strLookupFieldSelectVal, strLookupFieldFromVal, strLookupFieldWhereVal CHARACTER '';
+				DECLARE strComma CHARACTER ',';
+				DECLARE intFromVariable INTEGER 1;
+				DECLARE strLookupFieldValue CHARACTER;
+
+				SET strLookupFieldSelect = 'SELECT ITEM ';
+				SET strLookupFieldFrom = ' FROM ';
+				SET strLookupFieldWhere = ' WHERE ';
+				SET strLookupField = REPLACE(chrXPath, strSlash, strDot);
+				-- Sample Value in DB: /XML/"n1:EvtMsg"/Bd/BOEvt[Cd='CommonGrp']/Evt[Cd='DstSrvaCd']/Val
+				-- InputMessage.XML."n1:EvtMsg".Bd.BOEvt[Cd='CommonGrp'].Evt[Cd='DstSrvaCd'].Val
+				SET strLookupField = REPLACE(strLookupField, strXML, strInputRootXML);
+				SET strLookupField = REPLACE(strLookupField, strXMLNSC, strInputRootXMLNSC);
+				SET strLookupField = REPLACE(strLookupField, strMRM, strInputRootMRM);
+
+				WHILE POSITION(strStartSymb IN strLookupField) > 0 DO
+					SET strFromCharacter =
+					CASE CAST(intFromVariable AS CHARACTER)
+					WHEN '1' THEN 'A'
+					WHEN '2' THEN 'B'
+					WHEN '3' THEN 'C'
+					WHEN '4' THEN 'D'
+					WHEN '5' THEN 'E'
+					WHEN '6' THEN 'F'
+					WHEN '7' THEN 'G'
+					WHEN '8' THEN 'H'
+					WHEN '9' THEN 'I'
+					END;
+					SET intFromVariable = intFromVariable + 1;
+
+					SET strLookupFieldFromVal = strLookupFieldFromVal || TRIM(SUBSTRING( strLookupField BEFORE strStartSymb )) || '[] AS ' || strFromCharacter || strComma;
+					SET strLookupField = TRIM(SUBSTRING(strLookupField AFTER strStartSymb));
+					SET strLookupFieldWhereVal = strLookupFieldWhereVal || strFromCharacter || '.' || TRIM(SUBSTRING (strLookupField BEFORE strEndSymb)) || ' AND ';
+					SET strLookupField = strFromCharacter || TRIM(SUBSTRING(strLookupField AFTER strEndSymb));
+
+				END WHILE;
+
+				SET strLookupFieldSelect = strLookupFieldSelect || strLookupField;
+				SET strLookupFieldFrom = strLookupFieldFrom || SUBSTRING(strLookupFieldFromVal FROM 1 FOR (POSITION(strComma IN strLookupFieldFromVal REPEAT -1)-1));
+				SET strLookupFieldWhere = strLookupFieldWhere || SUBSTRING(strLookupFieldWhereVal FROM 1 FOR (POSITION('AND' IN strLookupFieldWhereVal REPEAT -1)-1));
+
+				SET strEvalLookupField = strLookupFieldSelect || strLookupFieldFrom || strLookupFieldWhere;
+
+				SET strLookupFieldValue = EVAL('THE(' || TRIM(strEvalLookupField) || ')');
+				SET strLookupFieldValue = COALESCE(TRIM(strLookupFieldValue),'');
+
+				SET chrInValue = strLookupFieldValue;
+			ELSE
+				DECLARE strLookupField CHARACTER;
+
+				SET strLookupField = REPLACE(chrXPath, strSlash, strDot);
+				-- Sample Value in DB: /XML/"n1:EvtMsg"/Bd/BOEvt[Cd='CommonGrp']/Evt[Cd='DstSrvaCd']/Val
+				-- InputMessage."n1:EvtMsg".Bd.BOEvt[Cd='CommonGrp'].Evt[Cd='DstSrvaCd'].Val
+				SET strLookupField = REPLACE(strLookupField, strXML, strInputRootXML);
+				SET strLookupField = REPLACE(strLookupField, strXMLNSC, strInputRootXMLNSC);
+				SET strLookupField = REPLACE(strLookupField, strMRM, strInputRootMRM);
+				SET chrInValue = COALESCE(TRIM(EVAL(strLookupField)),'');
+			END IF;
+
+			IF NOT matchRegularExpr(chrInValue, chrXPathValue) THEN
+				RETURN TRUE;
+			END IF;
+
+			SET intCurTemp = intCurTemp + 1;
+		END WHILE;
+
+		RETURN FALSE;
+	ELSE
+		RETURN FALSE;
+	END IF;
+END;	
+/*************************************************************************
+* Function Name: fncIASXMLEnrichment *
+* Parameters: 1. *
+* Description: Retrieve *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 26-12-2012 Tan Sze Wee Initial *
+*************************************************************************/
+--Edit by Han Min (10/06/2013) - Revamp Enrichment Rule function
+CREATE FUNCTION fncIASXMLEnrichment(IN refShp REFERENCE, IN refGEvt REFERENCE, IN refAcc REFERENCE, IN refInv REFERENCE, rowDataMapping REFERENCE, rowParamTable REFERENCE)
+BEGIN
+	DECLARE chrBTAccNo, chrDefBTAccNo, chrDefBTAccNoEVAL, chrCtryEnrich CHARACTER;
+	DECLARE intCurLocalAccCode, intActLocalAccCode, intBTAccNo INTEGER;
+	DECLARE blnMatchMasking, blnEnrich BOOLEAN;
+	DECLARE rowTempChr ROW;
+
+	SET chrBTAccNo = COALESCE(TRIM(THE(SELECT ITEM CR.AccNo FROM refShp.ShpTr.SCDtl[] AS CR WHERE COALESCE(TRIM(CR.CRlTyCd),'') = 'BT')),'');
+
+	SET intBTAccNo = CAST( chrBTAccNo AS INTEGER DEFAULT -1 );
+	-- Checking For Local Account Sequence Number
+	SET rowTempChr.Masking[] = (
+	SELECT R2.FROM_VAL, R2.TO_VAL
+	FROM rowDataMapping.IASXML_ACC_MASKING[] AS R2
+	WHERE COALESCE(TRIM(R2.FROM_VAL2),'*ALL*') = COALESCE(TRIM(refInv.GI.(XML.Attribute)SrcCtryCd),'')
+	);
+
+	IF chrBTAccNo <> '' AND CARDINALITY(rowTempChr.Masking[]) > 0 THEN
+		SET intCurLocalAccCode = 1;
+		SET intActLocalAccCode = CARDINALITY(rowTempChr.Masking[]);
+		SET blnMatchMasking = FALSE;
+
+		PROCESS: WHILE intCurLocalAccCode <= intActLocalAccCode DO
+			IF STARTSWITH(chrBTAccNo, TRIM(rowTempChr.Masking[intCurLocalAccCode].FROM_VAL)) THEN
+				SET blnMatchMasking = TRUE;
+				LEAVE PROCESS;
+			END IF;
+
+			SET intCurLocalAccCode = intCurLocalAccCode + 1;
+		END WHILE;
+	ELSE
+		SET blnMatchMasking = TRUE;
+	END IF;
+
+	SET blnEnrich = FALSE;
+	--START PRB0132444 NAVEEN: CAA Estonia & Latvia: Account number masking 15/05/2020
+	/*IF ( chrBTAccNo = '' ) --BT Acct No NULL
+		--BT Acct No Numeric and Does not meet numeric standard length
+		OR ( intBTAccNo > -1 AND LENGTH(chrBTAccNo) <> CAST(rowParamTable.BT_ACC_NUM_LEN AS INTEGER) )
+		--BT Acct No Alpha-Numeric and shorter than minimum length
+		OR ( intBTAccNo = -1 AND ( LENGTH(chrBTAccNo) < CAST(rowParamTable.BT_ACC_MIN_LEN AS INTEGER) ) )
+		--BT Acct No Alpha-Numeric and longer than maximum length
+		OR ( intBTAccNo = -1 AND ( LENGTH(chrBTAccNo) > CAST(rowParamTable.BT_ACC_MAX_LEN AS INTEGER) ) ) THEN
+		SET blnEnrich = TRUE;
+	ELSEIF NOT blnMatchMasking THEN --BT Acct No does not match country masking
+		SET blnEnrich = TRUE;
+	END IF; */
+	SET chrCtryEnrich = COALESCE(TRIM(THE(SELECT ITEM S.FROM_VAL2 FROM rowDataMapping.IASXML_CTRY_ACC_ENRICHMENT[] AS S
+							WHERE COALESCE(TRIM(S.FROM_VAL2),'') = COALESCE(TRIM(refInv.GI.(XML.Attribute)SrcCtryCd),''))),'');
+		
+	IF ( chrBTAccNo = '' ) THEN
+		SET blnEnrich = TRUE;
+	--Country does not match for Acc Enrichment
+	ELSEIF COALESCE(chrCtryEnrich,'') = '' THEN
+		--BT Acct No Numeric and Does not meet numeric standard length
+		IF ( intBTAccNo > -1 AND LENGTH(chrBTAccNo) <> CAST(rowParamTable.BT_ACC_NUM_LEN AS INTEGER) )
+			--BT Acct No Alpha-Numeric and shorter than minimum length
+			OR ( intBTAccNo = -1 AND ( LENGTH(chrBTAccNo) < CAST(rowParamTable.BT_ACC_MIN_LEN AS INTEGER) ) )
+			--BT Acct No Alpha-Numeric and longer than maximum length
+			OR ( intBTAccNo = -1 AND ( LENGTH(chrBTAccNo) > CAST(rowParamTable.BT_ACC_MAX_LEN AS INTEGER) ) ) THEN
+			SET blnEnrich = TRUE;
+		--BT Acct No does not match country masking
+		ELSEIF NOT blnMatchMasking THEN 
+			SET blnEnrich = TRUE;
+		END IF;
+	--Country match for Acc Enrichment
+	ELSEIF COALESCE(chrCtryEnrich,'') <> '' THEN
+		--BT Acct No does not match country masking
+		IF NOT blnMatchMasking THEN 
+			SET blnEnrich = TRUE;
+		END IF;
+	END IF;
+	--END PRB0132444 NAVEEN: CAA Estonia & Latvia: Account number masking 15/05/2020
+	
+	IF blnEnrich THEN
+		DECLARE chrDefBTAccNo, chrDefBTAccNoEVAL CHARACTER;
+		SET chrDefBTAccNo = COALESCE(TRIM(THE(
+		SELECT ITEM R1.TO_VAL
+		FROM rowDataMapping.IASXML_DEFAULT_ACC_NUM[] AS R1
+		WHERE COALESCE(TRIM(R1.FROM_VAL),'') = COALESCE(TRIM(refInv.GI.(XML.Attribute)SrcCtryCd),'')
+		)),'');
+
+		IF chrDefBTAccNo = '' THEN
+			SET chrDefBTAccNoEVAL = 'DUTY' || COALESCE(TRIM(refInv.GI.(XML.Attribute)SrcCtryCd),'') || COALESCE(TRIM(refInv.GI.(XML.Attribute)SrcSrvaCd),'');
+		ELSE
+			SET chrDefBTAccNoEVAL = COALESCE(TRIM(CAST(EVAL(chrDefBTAccNo) AS CHARACTER)),'');
+		END IF;
+
+		DECLARE intCurSCDtl, intActSCDtl INTEGER;
+
+		SET intCurSCDtl = 1;
+		SET intActSCDtl = CARDINALITY(refShp.ShpTr.SCDtl[]);
+		PROCESS4: WHILE intCurSCDtl <= intActSCDtl DO
+			IF COALESCE(TRIM(refShp.ShpTr.SCDtl[intCurSCDtl].CRlTyCd),'') = 'BT' THEN
+				SET refShp.ShpTr.SCDtl[intCurSCDtl].(XML.Attribute)AccNo = chrDefBTAccNoEVAL;
+				LEAVE PROCESS4;
+			END IF;
+
+			SET intCurSCDtl = intCurSCDtl + 1;
+		END WHILE;
+		--YHM (10/04/2014) - Remove defaulting of invoice type & account type
+		--SET refInv.InvDocTy.(XML.Attribute)InvDcTyCd = rowParamTable.DefaultInvoiceType;
+		--SET refInv.(XML.Attribute)PMthTyCd = rowParamTable.DefaultAccountType;
+	END IF;
+END;
+--End edit by Han Min
+/*************************************************************************
+* Function Name: fncGetEpochTimeInSecond *
+* Parameters: 1. Input Parameter: chrUTCDtm,Type: Character, Format*
+* yyyy-MM-dd HH:mm:ss. Date Time in UTC (+0 OffSet) *
+* Description: Getting Time In Second for Target Date Time *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 10-05-2013 Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncGetEpochTimeInSecond(chrUTCDtm CHARACTER) RETURNS CHARACTER
+BEGIN
+	--Declaring local variables
+	DECLARE EpocBasedTimeStamp, EpocTargetTimeStamp TIMESTAMP;
+	-- TSW Start Remove the time zone format because of IIB9 will convert the offset differently with +7:30 which should be +8:00 14-4-2016
+	-- DECLARE EpocDtmFormat CHARACTER 'yyyy-MM-dd HH:mm:ssZZZ';
+	DECLARE EpocDtmFormat CHARACTER 'yyyy-MM-dd HH:mm:ss';
+	-- TSW End Remove the time zone format because of IIB9 will convert the offset differently with +7:30 which should be +8:00 14-4-2016
+	DECLARE EventInterval INTERVAL;
+	DECLARE chrEpochBasedTime, chrEpocTime CHARACTER;
+
+	SET chrEpochBasedTime = '1970-01-01 00:00:00';
+	SET EpocBasedTimeStamp = CAST(chrEpochBasedTime AS TIMESTAMP FORMAT EpocDtmFormat);
+	-- TSW Start Remove the time zone format because of IIB9 will convert the offset differently with +7:30 which should be +8:00 14-4-2016
+	-- SET chrUTCDtm = chrUTCDtm || '+00:00';
+	-- TSW End Remove the time zone format because of IIB9 will convert the offset differently with +7:30 which should be +8:00 14-4-2016
+	SET EpocTargetTimeStamp = CAST(chrUTCDtm AS TIMESTAMP FORMAT EpocDtmFormat);
+	SET EventInterval = (EpocTargetTimeStamp - EpocBasedTimeStamp) SECOND;
+	SET chrEpocTime = CAST(CAST(EventInterval AS INTEGER) AS CHARACTER);
+
+	RETURN chrEpocTime;
+END;
+
+/*************************************************************************
+* Function Name: fncFilterOffNewAWB_ACS *
+* Parameters: 1. Input Parameter: chrAWB *
+* Description: Route AWB that 11 characters *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 08-01-2018 Rakkammal Initial *
+*************************************************************************/
+CREATE FUNCTION fncFilterOffNewAWB_ACS(chrAWB CHARACTER) RETURNS BOOLEAN
+BEGIN
+	DECLARE intAWB INTEGER;
+
+	SET intAWB = LENGTH(chrAWB);
+
+	IF intAWB > 10 AND intAWB <> 11 THEN
+		RETURN TRUE;
+	END IF;
+
+	RETURN FALSE;
+END; 
+/*************************************************************************
+* Function Name: fncCheckFilterSubsXPath *
+* Parameters: 1. Input Parameter: strInputVal,Type: CHAR *
+* Description: Retrieve *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 10-07-2013 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncCheckFilterSubsXPath(InputMessage REFERENCE, FilterSubRow REFERENCE, chrFilterSubsName CHAR, chrFlowName CHAR) RETURNS BOOLEAN
+BEGIN
+	DECLARE chrTemp ROW;
+	DECLARE chrXPath, chrInValue, chrXPathValue CHARACTER;
+	DECLARE intCurTemp, intActTemp INTEGER;
+	DECLARE strStartSymb CHARACTER '[';
+	DECLARE strEndSymb CHARACTER ']';
+	DECLARE strSlash CHARACTER '/';
+	DECLARE strDot CHARACTER '.';
+	DECLARE strXML CHARACTER '.XML.';
+	DECLARE strMRM CHARACTER '.MRM.';
+	DECLARE strXMLNSC CHARACTER '.XMLNSC.';
+	DECLARE strInputRootXML CHARACTER 'InputMessage.XML.';
+	DECLARE strInputRootMRM CHARACTER 'InputMessage.MRM.';
+	DECLARE strInputRootXMLNSC CHARACTER 'InputMessage.XMLNSC.';
+	DECLARE strSpecialLookup CHARACTER 'CHECK:';
+
+	SET chrTemp.data[] =
+	(
+	SELECT R.FILTER_TYPE, R.FILTER_VALUE
+	from FilterSubRow.FilterSubs[] as R
+	WHERE TRIM(R.FILTER_SUBS) = TRIM(chrFilterSubsName)
+	AND TRIM(R.MSGFLOW) = TRIM(chrFlowName)
+	);
+
+	IF CARDINALITY(chrTemp.data[]) > 0 THEN
+		SET intCurTemp = 1;
+		SET intActTemp = CARDINALITY(chrTemp.data[]);
+
+		WHILE intCurTemp <= intActTemp DO
+
+			SET chrXPath = COALESCE(TRIM(chrTemp.data[intCurTemp].FILTER_TYPE),'');
+			SET chrXPathValue = COALESCE(TRIM(chrTemp.data[intCurTemp].FILTER_VALUE),'');
+			-- IF POSITION(strSpecialLookup IN chrXPath) > 0 THEN
+			IF STARTSWITH(chrXPath, strSpecialLookup) THEN
+				SET chrXPath = SUBSTRING(chrXPath AFTER strSpecialLookup);
+				SET chrInValue = COALESCE(TRIM(EVAL(chrXPath)),'');
+			ELSEIF POSITION(strStartSymb IN chrXPath) > 0 THEN
+				-- Perform normal lookup function with checking
+				DECLARE strFromCharacter, strLookupField, strEvalLookupField, strLookupFieldSelect, strLookupFieldFrom, strLookupFieldWhere CHARACTER '';
+				DECLARE strLookupFieldSelectVal, strLookupFieldFromVal, strLookupFieldWhereVal CHARACTER '';
+				DECLARE strComma CHARACTER ',';
+				DECLARE intFromVariable INTEGER 1;
+				DECLARE strLookupFieldValue CHARACTER;
+
+				SET strLookupFieldSelect = 'SELECT ITEM ';
+				SET strLookupFieldFrom = ' FROM ';
+				SET strLookupFieldWhere = ' WHERE ';
+				SET strLookupField = REPLACE(chrXPath, strSlash, strDot);
+				-- Sample Value in DB: /XML/"n1:EvtMsg"/Bd/BOEvt[Cd='CommonGrp']/Evt[Cd='DstSrvaCd']/Val
+				-- InputMessage.XML."n1:EvtMsg".Bd.BOEvt[Cd='CommonGrp'].Evt[Cd='DstSrvaCd'].Val
+				SET strLookupField = REPLACE(strLookupField, strXML, strInputRootXML);
+				SET strLookupField = REPLACE(strLookupField, strXMLNSC, strInputRootXMLNSC);
+				SET strLookupField = REPLACE(strLookupField, strMRM, strInputRootMRM);
+
+				WHILE POSITION(strStartSymb IN strLookupField) > 0 DO
+					SET strFromCharacter =
+					CASE CAST(intFromVariable AS CHARACTER)
+					WHEN '1' THEN 'A'
+					WHEN '2' THEN 'B'
+					WHEN '3' THEN 'C'
+					WHEN '4' THEN 'D'
+					WHEN '5' THEN 'E'
+					WHEN '6' THEN 'F'
+					WHEN '7' THEN 'G'
+					WHEN '8' THEN 'H'
+					WHEN '9' THEN 'I'
+					END;
+					SET intFromVariable = intFromVariable + 1;
+
+					SET strLookupFieldFromVal = strLookupFieldFromVal || TRIM(SUBSTRING( strLookupField BEFORE strStartSymb )) || '[] AS ' || strFromCharacter || strComma;
+					SET strLookupField = TRIM(SUBSTRING(strLookupField AFTER strStartSymb));
+					SET strLookupFieldWhereVal = strLookupFieldWhereVal || strFromCharacter || '.' || TRIM(SUBSTRING (strLookupField BEFORE strEndSymb)) || ' AND ';
+					SET strLookupField = strFromCharacter || TRIM(SUBSTRING(strLookupField AFTER strEndSymb));
+
+				END WHILE;
+
+				SET strLookupFieldSelect = strLookupFieldSelect || strLookupField;
+				SET strLookupFieldFrom = strLookupFieldFrom || SUBSTRING(strLookupFieldFromVal FROM 1 FOR (POSITION(strComma IN strLookupFieldFromVal REPEAT -1)-1));
+				SET strLookupFieldWhere = strLookupFieldWhere || SUBSTRING(strLookupFieldWhereVal FROM 1 FOR (POSITION('AND' IN strLookupFieldWhereVal REPEAT -1)-1));
+
+				SET strEvalLookupField = strLookupFieldSelect || strLookupFieldFrom || strLookupFieldWhere;
+
+				SET strLookupFieldValue = EVAL('THE(' || TRIM(strEvalLookupField) || ')');
+				SET strLookupFieldValue = COALESCE(TRIM(strLookupFieldValue),'');
+
+				SET chrInValue = strLookupFieldValue;
+			ELSE
+				DECLARE strLookupField CHARACTER;
+
+				SET strLookupField = REPLACE(chrXPath, strSlash, strDot);
+				-- Sample Value in DB: /XML/"n1:EvtMsg"/Bd/BOEvt[Cd='CommonGrp']/Evt[Cd='DstSrvaCd']/Val
+				-- InputMessage."n1:EvtMsg".Bd.BOEvt[Cd='CommonGrp'].Evt[Cd='DstSrvaCd'].Val
+				SET strLookupField = REPLACE(strLookupField, strXML, strInputRootXML);
+				SET strLookupField = REPLACE(strLookupField, strXMLNSC, strInputRootXMLNSC);
+				SET strLookupField = REPLACE(strLookupField, strMRM, strInputRootMRM);
+				SET chrInValue = COALESCE(TRIM(EVAL(strLookupField)),'');
+			END IF;
+
+			IF matchRegularExpr(chrInValue, chrXPathValue) THEN
+				RETURN TRUE;
+			END IF;
+
+			SET intCurTemp = intCurTemp + 1;
+		END WHILE;
+
+		RETURN FALSE;
+	ELSE
+		RETURN FALSE;
+	END IF;
+END;
+/*************************************************************************
+* Function Name: fncGenMsgFromSIS *
+* Parameters: 1. Input Parameter: strEvtSegmentSeq ,Type: CHAR *
+* refInputMsg, Type: REFERENCE *
+* refChkptMap, Type: REFERENCE *
+* refDataMap, Type: REFERENCE *
+* Sample Command: gncGenEvtSegmentMsg('1',InputRoot.XML, rowCheckMaster, rowDataMapping);
+* Description: Generate Event Segment Message based on *
+CHECKPOINT_MASTER *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 28-02-2014 Tan Sze Wee Initial *
+*************************************************************************/
+
+CREATE FUNCTION fncGenMsgFromSIS(strEvtSegmentSeq CHARACTER, refInputMsg REFERENCE, refChkptMap REFERENCE, refDataMap REFERENCE) RETURNS CHARACTER
+BEGIN
+	DECLARE intFieldSeq, intFieldPriority INTEGER 1;
+	DEcLARE intActNo, intCurNo INTEGER;
+	DECLARE strEventSegmentMsg CHARACTER;
+	DECLARE rowFieldSegInfo ROW;
+	DECLARE strSlash CHARACTER '/';
+	DECLARE strDot CHARACTER '.';
+	DECLARE strXML CHARACTER '.XML.';
+	DECLARE strMRM CHARACTER '.MRM.';
+	DECLARE strInputRootXML CHARACTER 'refInputMsg.';
+	DECLARE strXMLDot CHARACTER 'XML.';
+	DECLARE strStartSymb CHARACTER '[';
+	DECLARE strEndSymb CHARACTER ']';
+	DECLARE strQuery CHARACTER;
+	DECLARE strEmpty CHARACTER '';
+
+	SET strEventSegmentMsg = '';
+
+	PROCESS: WHILE TRUE DO
+
+		SET rowFieldSegInfo.FieldInfo[] = (
+		SELECT CM.LOOKUP_FIELD, CM.TARGET_FIELD, CM.DEFAULT_VALUE, CM.MAX_LENGTH, CM.EVT_FIELD_DELIMITER,
+		CM.SPECIAL_LOOKUP_FIELD, CM.DATAMAPPING_KEY, CM.SPECIAL_FUNCTION, CM.EVT_FIELD_PRIORITY, CM.MAX_LENGTH_EXCEPTION_ENABLE, CM.TRIM_CONFIG, CM.PADDING
+		FROM refChkptMap.CheckpointMaster[] AS CM
+		WHERE CM.EVT_FIELD_SEQ = CAST(intFieldSeq AS CHARACTER)
+		AND CM.EVT_SEGMENT_SEQ = strEvtSegmentSeq
+		);
+
+		IF CARDINALITY(rowFieldSegInfo.FieldInfo[]) <= 0 THEN
+			LEAVE PROCESS;
+		END IF;
+
+		DECLARE strTmpFieldVal CHARACTER;
+
+		SET intActNo = CARDINALITY(rowFieldSegInfo.FieldInfo[]);
+		SET intCurNo = 1;
+		SET intFieldPriority = 1;
+
+		PROCESS2: WHILE intCurNo <= intActNo DO
+
+			SET rowFieldSegInfo.FieldPriorityInfo[] = (
+			SELECT CP.LOOKUP_FIELD, CP.TARGET_FIELD, CP.DEFAULT_VALUE, CP.MAX_LENGTH,
+			CP.SPECIAL_LOOKUP_FIELD, CP.DATAMAPPING_KEY, CP.SPECIAL_FUNCTION, CP.EVT_FIELD_DELIMITER, CP.MAX_LENGTH_EXCEPTION_ENABLE, CP.TRIM_CONFIG, CP.PADDING
+			FROM rowFieldSegInfo.FieldInfo[] AS CP
+			WHERE TRIM(CP.EVT_FIELD_PRIORITY) = CAST(intFieldPriority AS CHARACTER)
+			);
+
+			SET strTmpFieldVal = '';
+
+			IF CARDINALITY(rowFieldSegInfo.FieldPriorityInfo[]) > 0 THEN
+				-- Derive Value from the field based on the condition
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.LOOKUP_FIELD),'') = '' AND COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TARGET_FIELD),'') = '' AND COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_LOOKUP_FIELD),'') = '' THEN
+
+					SET strTmpFieldVal = COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.DEFAULT_VALUE),'');
+
+					SET strQuery = strTmpFieldVal;
+
+				ELSEIF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_LOOKUP_FIELD),'') <> '' THEN
+
+					DECLARE strSpecialLookupField CHARACTER;
+					DECLARE intStartPos, intLength INTEGER;
+					SET strSpecialLookupField = TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_LOOKUP_FIELD);
+
+					IF UPPER(strSpecialLookupField) <> 'SPACE' THEN
+						SET intStartPos = CAST(COALESCE(TRIM(THE(SELECT ITEM SM.START_POS
+						FROM refChkptMap.SISCheckpointMasterEvent[] AS SM
+						WHERE UPPER(TRIM(SM.EVT_FIELD_NAME)) = UPPER(TRIM(strSpecialLookupField))
+						)),'') AS INTEGER DEFAULT -1);
+
+						SET intLength = CAST(COALESCE(TRIM(THE(SELECT ITEM SM.MAX_LENGTH
+						FROM refChkptMap.SISCheckpointMasterEvent[] AS SM
+						WHERE UPPER(TRIM(SM.EVT_FIELD_NAME)) = UPPER(TRIM(strSpecialLookupField))
+						)),'') AS INTEGER DEFAULT -1);
+
+						IF intStartPos <> -1 AND intLength <> -1 THEN
+							-- SET strSpecialLookupField = 'COALESCE(TRIM(SUBSTRING(refInputMsg.AFRecord.AFPayloadArea.Content FROM ' || CAST(intStartPos AS CHARACTER) || ' FOR ' || CAST(intLength AS CHARACTER) || ')),' || strEmpty || ')';
+							SET strTmpFieldVal = COALESCE(TRIM(SUBSTRING(refInputMsg.AFRecord.AFPayloadArea.Content FROM intStartPos FOR intLength)),'');
+							-- SET strTmpFieldVal = COALESCE(TRIM(strTmpFieldVal),'');
+						ELSE
+							SET strTmpFieldVal = '';
+						END IF;
+					ELSE
+						SET strTmpFieldVal = ' ';
+					END IF;
+
+					SET strQuery = TRIM(strSpecialLookupField);
+
+				ELSEIF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.LOOKUP_FIELD),'') = '' AND COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TARGET_FIELD),'') <> '' THEN
+					-- Perform getting value from TARGET_FIELD which without doing any checking
+					DECLARE strTargetField CHARACTER;
+					SET strTargetField = COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TARGET_FIELD),'');
+					SET strTargetField = REPLACE(strTargetField, strSlash, strDot);
+					SET strTargetField = REPLACE(strTargetField, strXML, strInputRootXML);
+					SET strTargetField = REPLACE(strTargetField, strMRM, strInputRootXML);
+					SET strTmpFieldVal = EVAL(strTargetField);
+					SET strTmpFieldVal = COALESCE(TRIM(strTmpFieldVal),'');
+
+					SET strQuery = strTargetField;
+				ELSE
+					SET strTmpFieldVal = '';
+				END IF;
+				-- Check value against DATAMAPPING_TABLE
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.DATAMAPPING_KEY),'') <> '' THEN
+					SET strTmpFieldVal = COALESCE(TRIM(THE(SELECT ITEM DM.TO_VAL FROM refDataMap.DataMapping[] AS DM WHERE TRIM(DM.FROM_VAL) = strTmpFieldVal)),strTmpFieldVal);
+				END IF;
+				-- Check if the field need to trigger special function to perform data manipulation
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'') <> '' THEN
+					-- Special Function to populate Scope Flag based on shipment or piece
+					IF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CHECKSCOPEFLAG') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							IF POSITION( 'PcsId' IN strQuery ) > 0 THEN
+								SET strTmpFieldVal = 'P';
+							ELSEIF POSITION( 'ShpId' IN strQuery ) > 0 THEN
+								SET strTmpFieldVal = 'S';
+							END IF;
+						END IF;
+						-- Special Function to round the value to 6 decimal point
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('ROUNDTO6DECIMAL') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = CAST(ROUND(CAST(strCharacter AS DECIMAL), 6) AS CHARACTER);
+						END IF;
+						-- Special Function to round the value to 5 decimal point
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('ROUNDTO5DECIMAL') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = CAST(ROUND(CAST(strCharacter AS DECIMAL), 5) AS CHARACTER);
+						END IF;
+						-- Special Function to round the value to 4 decimal point
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('ROUNDTO4DECIMAL') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = CAST(ROUND(CAST(strCharacter AS DECIMAL), 4) AS CHARACTER);
+						END IF;
+						-- Special Function to round the value to 3 decimal point
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('ROUNDTO3DECIMAL') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = CAST(ROUND(CAST(strCharacter AS DECIMAL), 3) AS CHARACTER);
+						END IF;
+						-- Special Function to round the value to 2 decimal point
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('ROUNDTO2DECIMAL') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = CAST(ROUND(CAST(strCharacter AS DECIMAL), 2) AS CHARACTER);
+						END IF;
+						-- Special Function to round the value to 1 decimal point
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('ROUNDTO1DECIMAL') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = CAST(ROUND(CAST(strCharacter AS DECIMAL), 1) AS CHARACTER);
+						END IF;
+						-- Perform Date Time convertion to the local Date time based on the GMTOffSet
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('GETLOCALCALENDAR') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE chrSrcDtmFormat CHARACTER 'yyyy-MM-dd HH:mm:ss';
+							DECLARE chrTargetDtmFormat CHARACTER 'dd-MM-yyyy HH:mm:ss';
+							DECLARE chrDtm, chrGmtOff CHARACTER;
+							-- Sample Incoming Dtm = 2012-12-17T09:30:47+08:00
+							SET chrDtm = CAST(CAST(REPLACE(SUBSTRING(COALESCE(TRIM(strTmpFieldVal),'') FROM 1 FOR 19) ,'T' ,' ') AS TIMESTAMP FORMAT chrSrcDtmFormat) AS CHARACTER FORMAT chrTargetDtmFormat);
+							SET chrGmtOff = SUBSTRING(COALESCE(TRIM(strTmpFieldVal),'') FROM 20 FOR 6);
+							SET chrDtm = getLocalCalendar(chrDtm, chrGmtOff);
+
+							SET strTmpFieldVal = COALESCE(TRIM(chrDtm),'') || COALESCE(TRIM(chrGmtOff),'');
+						END IF;
+						-- Special Function to convert YYMMDD to YYYYMMDD
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_YYMMDD_DATE') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							DECLARE tmstmp TIMESTAMP;
+
+							SET tmstmp = CAST(strCharacter AS TIMESTAMP FORMAT 'yyMMdd');
+							SET strTmpFieldVal = CAST(tmstmp AS CHARACTER FORMAT 'yyyyMMdd');
+							--SET strTmpFieldVal = '20' || LEFT(strCharacter,2) || '-' || SUBSTRING(strCharacter FROM 3 FOR 2) || '-' || RIGHT(strCharacter,2);
+						END IF;
+						-- Special Function to convert YYMMDD to YYYY-MM-DD
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_YYMMDD_STD_DATE') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							DECLARE tmstmp TIMESTAMP;
+
+							SET tmstmp = CAST(strCharacter AS TIMESTAMP FORMAT 'yyMMdd');
+							SET strTmpFieldVal = CAST(tmstmp AS CHARACTER FORMAT 'yyyy-MM-dd');
+							--SET strTmpFieldVal = '20' || LEFT(strCharacter,2) || '-' || SUBSTRING(strCharacter FROM 3 FOR 2) || '-' || RIGHT(strCharacter,2);
+						END IF;
+						-- Special Function to convert HHMM to HH:MM:00
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_HHMM_STD_TIME') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = LEFT(strCharacter,2) || ':' || RIGHT(strCharacter,2) || ':00';
+						END IF;
+						-- Special Function to convert HHMM to HHMM00
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_HHMM_TIME') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = strCharacter || '00';
+						END IF;
+						-- Special Function to convert YYMMDDHHMM to yyyy-mm-dd hh:mm:00
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_YYMMDDHHMM_UTC') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER CAST(strTmpFieldVal AS CHARACTER);
+							SET strTmpFieldVal = '20' || SUBSTRING(strCharacter FROM 1 FOR 2) || '-' || SUBSTRING(strCharacter FROM 3 FOR 2) || '-' || SUBSTRING(strCharacter FROM 5 FOR 2) || ' ' || SUBSTRING(strCharacter FROM 7 FOR 2) || ':' || SUBSTRING(strCharacter FROM 9 FOR 2) || ':00';
+						END IF;
+						-- Special Function to convert yyyy-mm-dd hh:mm:ssZ to YYYYDDMM
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_UTC_DATE') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER;
+							SET strCharacter = COALESCE(TRIM(SUBSTRING(strTmpFieldVal FROM 1 FOR 10)),'');
+							SET strTmpFieldVal = COALESCE(TRIM(REPLACE(strCharacter, '-' , '')),'');
+						END IF;
+						-- Special Function to convert yyyy-mm-dd hh:mm:ssZ to HHMMSS
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_UTC_TIME') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							DECLARE strCharacter CHARACTER;
+							SET strCharacter = COALESCE(TRIM(SUBSTRING(strTmpFieldVal FROM 12 FOR 8)),'');
+							SET strTmpFieldVal = COALESCE(TRIM(REPLACE(strCharacter, ':' , '')),'');
+						END IF;
+						-- Special Function to convert yyyy-mm-dd hh:mm:ssZ to Offset
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_UTC_OFFSET') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							SET strTmpFieldVal = COALESCE(TRIM(SUBSTRING(strTmpFieldVal FROM 20 FOR 6)),'');
+						END IF;
+						-- Special Function to convert DHL Offset to Standard Offset
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERTTOGMT') THEN
+						IF COALESCE(TRIM(strTmpFieldVal),'') <> '' THEN
+							SET strTmpFieldVal = fncConverToGMT(strTmpFieldVal);
+						END IF;
+						-- Special Function to get current date time offset
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('GETCURRENTDATETIME') THEN
+						SET strTmpFieldVal = getDHLCurrentTime();
+						-- Special Function to convert string to integer. For example, 0002 to 2.
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERTTOINTEGER') THEN
+						DECLARE intTmpFieldVal INTEGER;
+
+						SET intTmpFieldVal = CAST(strTmpFieldVal AS INTEGER DEFAULT 0);
+						SET strTmpFieldVal = CAST(intTmpFieldVal AS CHARACTER);
+						-- Special Function to convert null to space.
+					ELSEIF UPPER(COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.SPECIAL_FUNCTION),'')) = UPPER('CONVERT_NULL_SPACE') THEN
+						DECLARE blobVal BLOB;
+
+						SET blobVal = CAST(strTmpFieldVal AS BLOB CCSID 1208);
+						SET blobVal = REPLACE(blobVal,x'00',x'20');
+						SET strTmpFieldVal = CAST(blobVal AS CHARACTER CCSID 1208);
+						SET strTmpFieldVal = COALESCE(TRIM(strTmpFieldVal),'');
+					END IF;
+				END IF;
+				-- Set the temp value into the strTmpFieldVal IF MAX_LENGTH got value perform truncate, Else set the value without truncate
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH),'') <> '' THEN
+					-- Throw exception if the length of incoming value larger than the MAX_LENGTH (when it is define)
+					IF (COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH_EXCEPTION_ENABLE),'N') = 'Y') AND (LENGTH(strTmpFieldVal) > CAST(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH AS INTEGER)) THEN
+						THROW USER EXCEPTION VALUES ('Length Exceed!! Value="' || strTmpFieldVal || '". Max length is ' || rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH );
+					END IF;
+					-- Perform Left or Right Trim. Default is L
+					IF (COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.TRIM_CONFIG),'L') = 'R') THEN
+						SET strTmpFieldVal = RIGHT(strTmpFieldVal,CAST(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH AS INTEGER));
+					ELSE
+						SET strTmpFieldVal = LEFT(strTmpFieldVal,CAST(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH AS INTEGER));
+					END IF;
+				END IF;
+				-- Padding the value with Zero or Space from Left or Right. Sample value can be LSPACE, RSPACE, LZERO, RZERO
+				IF COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.PADDING),'') <> '' AND COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH),'') <> '' THEN
+					DECLARE chrLRPadding, chrPadding CHARACTER;
+					DECLARE intCurLength, intMaxLength, intDiffLength INTEGER;
+
+					SET chrLRPadding = LEFT(UPPER(TRIM(rowFieldSegInfo.FieldPriorityInfo.PADDING)),1);
+					SET chrPadding = SUBSTRING(UPPER(TRIM(rowFieldSegInfo.FieldPriorityInfo.PADDING)) FROM 2);
+					SET intCurLength = LENGTH(strTmpFieldVal);
+					SET intMaxLength = CAST(TRIM(rowFieldSegInfo.FieldPriorityInfo.MAX_LENGTH) AS INTEGER DEFAULT 0);
+					SET intDiffLength = intMaxLength - intCurLength;
+
+					IF intDiffLength > 0 THEN
+						IF chrLRPadding = 'L' THEN
+							IF chrPadding = 'ZERO' THEN
+								SET strTmpFieldVal = REPLICATE('0',intDiffLength) || strTmpFieldVal;
+							ELSEIF chrPadding = 'SPACE' THEN
+								SET strTmpFieldVal = REPLICATE(' ',intDiffLength) || strTmpFieldVal;
+							END IF;
+						ELSE IF chrLRPadding = 'R' THEN
+							IF chrPadding = 'ZERO' THEN
+								SET strTmpFieldVal = strTmpFieldVal || REPLICATE('0',intDiffLength);
+							ELSEIF chrPadding = 'SPACE' THEN
+								SET strTmpFieldVal = strTmpFieldVal || REPLICATE(' ',intDiffLength);
+							END IF;
+						END IF;
+					END IF;
+				END IF;
+			END IF;
+
+		ELSE
+			LEAVE PROCESS2;
+		END IF;
+
+		IF COALESCE(TRIM(strTmpFieldVal),'') <> '' OR intCurNo >= intActNo THEN
+			-- Set the delimeter after each field value
+			SET strTmpFieldVal = strTmpFieldVal || COALESCE(TRIM(rowFieldSegInfo.FieldPriorityInfo.EVT_FIELD_DELIMITER),'');
+			LEAVE PROCESS2;
+		END IF;
+
+		SET intCurNo = intCurNo + 1;
+		SET intFieldPriority = intFieldPriority + 1;
+	END WHILE;
+
+	SET strEventSegmentMsg = strEventSegmentMsg || strTmpFieldVal;
+
+	SET intFieldSeq = intFieldSeq + 1;
+END WHILE;
+
+RETURN strEventSegmentMsg;
+END;
+/*************************************************************************
+* Function Name: fncConvertLocalWithDayLightSaving *
+* Parameters: 1. GMT Date Time in format (YYYY-MM-DD HH:MM:SS) *
+* 2. Target Service Area to convert to *
+* Description: This function used to convert the date time with the *
+* consideration of daylight saving *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 13-03-2014 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertLocalWithDayLightSaving(chrGMTDtm CHARACTER, chrSrvaCd CHARACTER) RETURNS CHARACTER
+BEGIN
+	DECLARE chrTargetDtm, chrStartDay, chrEndDay, chrStartDate, chrEndDate, chrParam, chrInputDtm, chrOffset, chrNOffset CHARACTER;
+	DECLARE chrStartDtm, chrEndDtm CHARACTER;
+	DECLARE chrTargetDtmFormat CHARACTER 'dd-MM-yyyy HH:mm:ss';
+	DECLARE chrSourceDtmFormat CHARACTER 'yyyy-MM-dd HH:mm:ss';
+	DECLARE rowTimeZone ROW;
+	DECLARE tmsInputDtm, tmsStartDtm, tmsEndDtm TIMESTAMP;
+
+	SET rowTimeZone.target[] = (
+	SELECT TZ.GMT_OFFSET, TZ.DST_START_DAY, TZ.DST_START_FIRST, TZ.DST_START_LAST, TZ.DST_END_DAY, TZ.DST_END_FIRST, TZ.DST_END_LAST, TZ.DST_OFFSET, TZ.DST_CHG_TIME
+	FROM Database.TIME_ZONE AS TZ, Database.SERVICE_AREA AS SA
+	WHERE TRIM(SA.SERVICE_AREA) = COALESCE(TRIM(chrSrvaCd),'')
+	AND TRIM(SA.TIME_ZONE_ID) = TRIM(TZ.TIME_ZONE_ID)
+	);
+
+	IF CARDINALITY(rowTimeZone.target[]) > 0 THEN
+		SET tmsInputDtm = CAST(chrGMTDtm AS TIMESTAMP FORMAT chrSourceDtmFormat);
+		SET chrParam = CAST(tmsInputDtm AS CHARACTER FORMAT chrTargetDtmFormat);
+		SET chrOffset = COALESCE(TRIM(rowTimeZone.target[1].GMT_OFFSET),'');
+
+		IF LENGTH(chrOffset) < 6 THEN
+			IF STARTSWITH(chrOffset, '-') THEN
+				SET chrNOffset = '-0' || SUBSTRING(chrOffset FROM 2);
+			ELSE
+				IF LENGTH(chrOffset) = 4 THEN
+					SET chrNOffset = '+0' || chrOffset;
+				ELSEIF LENGTH(chrOffset) = 5 THEN
+					SET chrNOffset = '+' || chrOffset;
+				END IF;
+			END IF;
+		ELSE
+			SET chrNOffset = chrOffset;
+		END IF;
+
+		IF COALESCE(TRIM(rowTimeZone.target[1].DST_OFFSET),'') <> '' THEN
+			SET chrInputDtm = getLocalCalendar(chrParam, chrNOffset);
+			-- Get the Start DST Date
+			SET chrStartDate = COALESCE(TRIM(rowTimeZone.target[1].DST_START_FIRST),'');
+			SET chrStartDay = COALESCE(TRIM(rowTimeZone.target[1].DST_START_DAY),'');
+			SET tmsInputDtm = CAST(chrStartDate AS TIMESTAMP FORMAT 'MM-dd');
+			SET chrStartDate = CAST(tmsInputDtm AS CHARACTER FORMAT 'MM-dd-yyyy');
+			SET chrStartDtm = getDSTSCalendar(chrStartDate, chrStartDay);
+			SET chrStartDtm = chrStartDtm || ' ' || CAST(COALESCE(TRIM(rowTimeZone.target[1].DST_CHG_TIME),'') AS CHARACTER) || ':00';
+			-- Get the End DST Date
+			SET chrEndDate = COALESCE(TRIM(rowTimeZone.target[1].DST_END_FIRST),'');
+			SET chrEndDay = COALESCE(TRIM(rowTimeZone.target[1].DST_END_DAY),'');
+			SET tmsInputDtm = CAST(chrEndDate AS TIMESTAMP FORMAT 'MM-dd');
+			SET chrEndDate = CAST(tmsInputDtm AS CHARACTER FORMAT 'MM-dd-yyyy');
+			SET chrEndDtm = getDSTSCalendar(chrEndDate, chrEndDay);
+			SET chrEndDtm = chrEndDtm || ' ' || CAST(COALESCE(TRIM(rowTimeZone.target[1].DST_CHG_TIME),'') AS CHARACTER) || ':00';
+			-- Convert all to TIMESTAMP
+			SET tmsInputDtm = CAST(chrInputDtm AS TIMESTAMP FORMAT chrSourceDtmFormat);
+			SET tmsStartDtm = CAST(chrStartDtm AS TIMESTAMP FORMAT chrTargetDtmFormat);
+			SET tmsEndDtm = CAST(chrEndDtm AS TIMESTAMP FORMAT chrTargetDtmFormat);
+			-- Comparison to check whether should go to daylight saving
+
+			IF tmsStartDtm <= tmsInputDtm AND tmsInputDtm <= tmsEndDtm THEN
+				SET chrOffset = COALESCE(TRIM(rowTimeZone.target[1].DST_OFFSET),'');
+				IF LENGTH(chrOffset) < 6 THEN
+					IF STARTSWITH(chrOffset, '-') THEN
+						SET chrNOffset = '-0' || SUBSTRING(chrOffset FROM 2);
+					ELSE
+						IF LENGTH(chrOffset) = 4 THEN
+							SET chrNOffset = '+0' || chrOffset;
+						ELSEIF LENGTH(chrOffset) = 5 THEN
+							SET chrNOffset = '+' || chrOffset;
+						END IF;
+					END IF;
+				ELSE
+					SET chrNOffset = chrOffset;
+				END IF;
+
+				SET chrTargetDtm = getLocalCalendar(chrParam, chrNOffset);
+				SET chrTargetDtm = chrTargetDtm || chrNOffset;
+			ELSE
+				SET chrTargetDtm = chrInputDtm || chrNOffset;
+			END IF;
+		ELSE
+			SET chrTargetDtm = getLocalCalendar(chrParam, chrNOffset);
+			SET chrTargetDtm = chrTargetDtm || chrNOffset;
+		END IF;
+	END IF;
+
+	RETURN chrTargetDtm;
+END;
+/*************************************************************************
+* Function Name: fncFilterOffNewAWB *
+* Parameters: 1. Input Parameter: chrAWB *
+* Description: Filter Off AWB that more than 10 characters *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 02-07-2014 Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncFilterOffNewAWB(chrAWB CHARACTER) RETURNS BOOLEAN
+BEGIN
+	DECLARE intAWB INTEGER;
+
+	SET intAWB = LENGTH(chrAWB);
+
+	IF intAWB > 10 THEN
+		RETURN TRUE;
+	END IF;
+
+	RETURN FALSE;
+END;
+/*************************************************************************
+* Function Name: fncGetEpochTimeInSecond *
+* Parameters: 1. Input Parameter: chrUTCDtm,Type: Character, Format*
+* yyyy-MM-dd HH:mm:ss. Date Time in UTC *
+* Description: Getting Time In Second for Target Date Time *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 02-09-2014 Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncGetEpochTimeInSecondUTC(chrUTCDtm CHARACTER) RETURNS CHARACTER
+BEGIN
+	--Declaring local variables
+	DECLARE EpocBasedTimeStamp, EpocTargetTimeStamp TIMESTAMP;
+	DECLARE EpocDtmFormat CHARACTER 'yyyy-MM-dd HH:mm:ssZZZ';
+	DECLARE EventInterval INTERVAL;
+	DECLARE chrEpochBasedTime, chrEpocTime CHARACTER;
+
+	SET chrEpochBasedTime = '1970-01-01 00:00:00+00:00';
+	SET EpocBasedTimeStamp = CAST(chrEpochBasedTime AS TIMESTAMP FORMAT EpocDtmFormat);
+	SET EpocTargetTimeStamp = CAST(chrUTCDtm AS TIMESTAMP FORMAT EpocDtmFormat);
+	SET EventInterval = (EpocTargetTimeStamp - EpocBasedTimeStamp) SECOND;
+	SET chrEpocTime = CAST(CAST(EventInterval AS INTEGER) AS CHARACTER);
+
+	RETURN chrEpocTime;
+END;
+/*************************************************************************
+* Function Name: fncGetLocalOffSetWithDST *
+* Parameters: 1. GMT Date Time in format (YYYY-MM-DD HH:MM:SS) *
+* 2. list of result from TIME_ZONE based on SRVA *
+* Description: This function used to get the offset with DST *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 17-06-2015 Tan Sze Wee Initial *
+*************************************************************************/
+CREATE FUNCTION fncGetLocalOffSetWithDST(chrGMTDtm CHARACTER, rowTimeZone REFERENCE) RETURNS CHARACTER
+BEGIN
+	DECLARE chrTargetDtm, chrStartDay, chrEndDay, chrStartDate, chrEndDate, chrParam, chrInputDtm, chrOffset, chrNOffset CHARACTER;
+	DECLARE chrStartDtm, chrEndDtm CHARACTER;
+	DECLARE chrTargetDtmFormat CHARACTER 'dd-MM-yyyy HH:mm:ss';
+	DECLARE chrSourceDtmFormat CHARACTER 'yyyy-MM-dd HH:mm:ss';
+	DECLARE tmsInputDtm, tmsStartDtm, tmsEndDtm TIMESTAMP;
+	-- SET rowTimeZone.target[] = (
+	-- SELECT TZ.GMT_OFFSET, TZ.DST_START_DAY, TZ.DST_START_FIRST, TZ.DST_START_LAST, TZ.DST_END_DAY, TZ.DST_END_FIRST, TZ.DST_END_LAST, TZ.DST_OFFSET, TZ.DST_CHG_TIME
+	-- FROM Database.TIME_ZONE AS TZ, Database.SERVICE_AREA AS SA
+	-- WHERE TRIM(SA.SERVICE_AREA) = COALESCE(TRIM(chrSrvaCd),'')
+	-- AND TRIM(SA.TIME_ZONE_ID) = TRIM(TZ.TIME_ZONE_ID)
+	-- );
+
+	IF CARDINALITY(rowTimeZone.target[]) > 0 THEN
+		SET tmsInputDtm = CAST(chrGMTDtm AS TIMESTAMP FORMAT chrSourceDtmFormat);
+		SET chrParam = CAST(tmsInputDtm AS CHARACTER FORMAT chrTargetDtmFormat);
+		SET chrOffset = COALESCE(TRIM(rowTimeZone.target[1].GMT_OFFSET),'');
+
+		IF LENGTH(chrOffset) < 6 THEN
+			IF STARTSWITH(chrOffset, '-') THEN
+				SET chrNOffset = '-0' || SUBSTRING(chrOffset FROM 2);
+			ELSE
+				IF LENGTH(chrOffset) = 4 THEN
+					SET chrNOffset = '+0' || chrOffset;
+				ELSEIF LENGTH(chrOffset) = 5 THEN
+					SET chrNOffset = '+' || chrOffset;
+				END IF;
+			END IF;
+		ELSE
+			SET chrNOffset = chrOffset;
+		END IF;
+
+		IF COALESCE(TRIM(rowTimeZone.target[1].DST_OFFSET),'') <> '' THEN
+			SET chrInputDtm = getLocalCalendar(chrParam, chrNOffset);
+			-- Get the Start DST Date
+			SET chrStartDate = COALESCE(TRIM(rowTimeZone.target[1].DST_START_FIRST),'');
+			SET chrStartDay = COALESCE(TRIM(rowTimeZone.target[1].DST_START_DAY),'');
+			SET tmsInputDtm = CAST(chrStartDate AS TIMESTAMP FORMAT 'MM-dd');
+			SET chrStartDate = CAST(tmsInputDtm AS CHARACTER FORMAT 'MM-dd-yyyy');
+			SET chrStartDtm = getDSTSCalendar(chrStartDate, chrStartDay);
+			SET chrStartDtm = chrStartDtm || ' ' || CAST(COALESCE(TRIM(rowTimeZone.target[1].DST_CHG_TIME),'') AS CHARACTER) || ':00';
+			-- Get the End DST Date
+			SET chrEndDate = COALESCE(TRIM(rowTimeZone.target[1].DST_END_FIRST),'');
+			SET chrEndDay = COALESCE(TRIM(rowTimeZone.target[1].DST_END_DAY),'');
+			SET tmsInputDtm = CAST(chrEndDate AS TIMESTAMP FORMAT 'MM-dd');
+			SET chrEndDate = CAST(tmsInputDtm AS CHARACTER FORMAT 'MM-dd-yyyy');
+			SET chrEndDtm = getDSTSCalendar(chrEndDate, chrEndDay);
+			SET chrEndDtm = chrEndDtm || ' ' || CAST(COALESCE(TRIM(rowTimeZone.target[1].DST_CHG_TIME),'') AS CHARACTER) || ':00';
+			-- Convert all to TIMESTAMP
+			SET tmsInputDtm = CAST(chrInputDtm AS TIMESTAMP FORMAT chrSourceDtmFormat);
+			SET tmsStartDtm = CAST(chrStartDtm AS TIMESTAMP FORMAT chrTargetDtmFormat);
+			SET tmsEndDtm = CAST(chrEndDtm AS TIMESTAMP FORMAT chrTargetDtmFormat);
+			-- Comparison to check whether should go to daylight saving
+
+			IF tmsStartDtm <= tmsInputDtm AND tmsInputDtm <= tmsEndDtm THEN
+				SET chrOffset = COALESCE(TRIM(rowTimeZone.target[1].DST_OFFSET),'');
+				IF LENGTH(chrOffset) < 6 THEN
+					IF STARTSWITH(chrOffset, '-') THEN
+						SET chrNOffset = '-0' || SUBSTRING(chrOffset FROM 2);
+					ELSE
+						IF LENGTH(chrOffset) = 4 THEN
+							SET chrNOffset = '+0' || chrOffset;
+						ELSEIF LENGTH(chrOffset) = 5 THEN
+							SET chrNOffset = '+' || chrOffset;
+						END IF;
+					END IF;
+				ELSE
+					SET chrNOffset = chrOffset;
+				END IF;
+			END IF;
+		END IF;
+	END IF;
+
+	RETURN chrNOffset;
+END;
+/****************************************************************************************************
+* Function Name: fncGetCODDetails *
+* Parameter: 1. Special Instruction Description *
+* 2. Element position in the Special Instruction Description
+* Eg: <Cash on Delivery><236.160><EUR> *
+* Description: This function used to get the COD details from Special Instruction Description *
+* Version Date Author Description *
+* =============== =========== ================== ======================== *
+* 1 15-07-2015 Mahalakshmi Muthusamy Initial *
+*************************************************************************/
+CREATE FUNCTION fncGetCODDetails(chrSpInsDsc CHARACTER,nPos INTEGER) RETURNS CHARACTER
+BEGIN
+	DECLARE chrTmp,chrRtn CHARACTER;
+	IF COALESCE(TRIM(chrSpInsDsc),'') <> '' THEN
+		IF nPos = 2 THEN -- COD Charge
+			--Example Desc : <Cash on Delivery><236.160><EUR>
+			SET chrTmp = COALESCE(TRIM(SUBSTRING(chrSpInsDsc AFTER '><')),'');
+			--236.160><EUR>
+			SET chrRtn = COALESCE(SUBSTRING(chrTmp BEFORE '><'),'');
+		ELSEIF nPos = 3 THEN -- Currency Code
+			--Example Desc : <Cash on Delivery><236.160><EUR>
+			SET chrTmp = COALESCE(TRIM(SUBSTRING(chrSpInsDsc AFTER '><')),'');
+			--236.160><EUR>
+			SET chrTmp = COALESCE(SUBSTRING(chrTmp AFTER '><'),'');
+			SET chrRtn = COALESCE(SUBSTRING(chrTmp BEFORE '>'),'');
+		END IF;
+	END IF;
+	RETURN chrRtn;
+END;	
+
+/************************************************************************************************************************
+* Function Name: fncOffsetFromLegacyFormatOffset *
+* Parameter: 1. Offset value in Legacy format *
+* Eg: +32 *
+* Description: This function used to get the offset value in the form +/-hh:mm from the legacy format offset value *
+* Version Date Author Description *
+* =============== =========== ================== ======================== *
+* 1 15-10-2015 Mahalakshmi Muthusamy Initial *
+*************************************************************************************************************************/
+
+
+CREATE FUNCTION fncOffsetFromLegacyFormatOffset(Offset INTEGER) RETURNS CHAR
+BEGIN
+	DECLARE chrTmp,chrSign,chrRtn CHAR;
+	DECLARE nOffset,nHr INTEGER 0;
+	DECLARE nMin DECIMAL;
+
+	SET chrTmp = COALESCE(CAST(Offset AS CHAR),'0');
+
+	IF STARTSWITH(chrTmp,'-') THEN
+		SET chrSign = '-';
+	ELSE
+		SET chrSign = '+';
+	END IF;
+
+	SET nOffset = CAST(chrTmp AS INTEGER);
+
+	IF nOffset = 0 THEN
+		SET chrRtn = '+00:00';
+	ELSE
+		SET nHr = ROUND(ABS(nOffset) / 4, 0 MODE ROUND_DOWN);
+		SET nMin = (MOD(ABS(nOffset) , 4) / 4.00 ) * 60;
+
+		SET chrRtn = chrSign || CAST(nHr AS CHAR FORMAT '00') || ':' || CAST(nMin AS CHAR FORMAT '00');
+	END IF;
+
+	RETURN chrRtn;
+END;
+/*********************************************************************************************************
+* Function Name: fncGetSplInsDescData *
+* Parameters: 1. Input Parameter: chrDESC (Special Instruction Description),Type: CHAR *
+* *
+* Description: Split the special instruction description value and store it in a Row *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ======================== *
+* 1 20-11-2015 Mahalakshmi Initial *
+**********************************************************************************************************/
+CREATE PROCEDURE fncGetSplInsDescData(IN chrDESC CHAR,IN rowDscData REFERENCE)
+BEGIN
+	DECLARE chrTmp,chrData CHAR;
+	DECLARE nIndex,nLength INTEGER;
+
+	DECLARE rowData ROW;
+	--<Insured Value><6000.0><DKK>
+	SET chrTmp = COALESCE(TRIM(SUBSTRING(chrDESC AFTER '<')),'');
+
+	SET nLength = LENGTH(chrTmp);
+	IF ENDSWITH(chrTmp,'>') THEN
+		SET chrTmp = SUBSTRING(chrTmp FROM 1 FOR (nLength -1));
+	END IF;
+	--Insured Value><6000.0><DKK
+	SET nLength = LENGTH(chrTmp);
+	SET nIndex = 1;
+	WHILE nLength > 0 DO
+		SET chrData = COALESCE(SUBSTRING(chrTmp BEFORE '><'),'');
+		IF POSITION('><' IN chrTmp) = 0 AND chrTmp <> '' THEN
+			SET chrData = chrTmp;
+		END IF;
+		SET chrTmp = COALESCE(SUBSTRING(chrTmp AFTER '><'),'');
+		--6000.0><DKK
+		SET rowData.Dat.Val[nIndex] = chrData;
+		SET nIndex = nIndex + 1;
+		SET nLength = LENGTH(chrTmp);
+	END WHILE;
+	SET rowDscData.Dat = rowData.Dat;
+END;
+/*********************************************************************************************************
+* Function Name: fncCommonCheckFilter *
+* Parameters: 1. Input Parameter: chrFilterName, chrFilterType Type: CHAR *
+rowFilterConfigInfo Type: ROW *
+rEnv Type: REFERENCE *
+* *
+* Description: Common Filter Function *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ======================== *
+* 1 30-11-2018 Naveen Initial *
+**********************************************************************************************************/
+
+CREATE FUNCTION fncCommonCheckFilter(rowFilterConfigInfo REFERENCE,chrFilterName CHAR, chrFilterType CHAR, rEnv REFERENCE ) RETURNS BOOLEAN
+BEGIN
+
+	CASE chrFilterType
+
+	WHEN 'ORI_SRVA' THEN
+		IF COALESCE(rEnv.ORI_SRVA,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.ORI_SRVA} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'ORI_CTRY' THEN
+		IF COALESCE(rEnv.Origin.DATA.COUNTRY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.Origin.DATA.COUNTRY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'ORI_REGION' THEN
+		IF COALESCE(rEnv.Origin.DATA.REGION,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.Origin.DATA.REGION} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'ORI_FACILITY' THEN
+		IF COALESCE(rEnv.ORI_FACILITY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.ORI_FACILITY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'DST_SRVA' THEN
+		IF COALESCE(rEnv.DST_SRVA,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.DST_SRVA} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'DST_CTRY' THEN
+		IF COALESCE(rEnv.Destination.DATA.COUNTRY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.Destination.DATA.COUNTRY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'DST_REGION' THEN
+		IF COALESCE(rEnv.Destination.DATA.REGION,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.Destination.DATA.REGION} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'DST_FACILITY' THEN
+		IF COALESCE(rEnv.DST_FACILITY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.DST_FACILITY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'PRODUCT_CODE' THEN
+		IF COALESCE(rEnv.PRODUCT_CODE,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.PRODUCT_CODE} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'ORI_APP' THEN
+		IF COALESCE(rEnv.ORI_APP,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.ORI_APP} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'ORI_ADDRESS' THEN
+		IF COALESCE(rEnv.ORI_ADDRESS,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.ORI_ADDRESS} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MSG_TYPE' THEN
+		IF COALESCE(rEnv.MSG_TYPE,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MSG_TYPE} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'GEN_SRVA' THEN
+		IF COALESCE(rEnv.GEN_SRVA,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.GEN_SRVA} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'GEN_CTRY' THEN
+		IF COALESCE(rEnv.GenClearance.DATA.COUNTRY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.GenClearance.DATA.COUNTRY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'GEN_REGION' THEN
+		IF COALESCE(rEnv.GenClearance.DATA.REGION,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.GenClearance.DATA.REGION} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'GEN_FACILITY' THEN
+		IF COALESCE(rEnv.GEN_FACILITY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.GEN_FACILITY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'DST_APP' THEN
+		IF COALESCE(rEnv.DST_APP,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.DST_APP} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MVMT_ORI_SRVA' THEN
+		IF COALESCE(rEnv.MVMT_ORI_SRVA,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MVMT_ORI_SRVA} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MVMT_ORI_CTRY' THEN
+		IF COALESCE(rEnv.MvmtOrigin.DATA.COUNTRY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MvmtOrigin.DATA.COUNTRY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MVMT_ORI_REGION' THEN
+		IF COALESCE(rEnv.MvmtOrigin.DATA.REGION,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MvmtOrigin.DATA.REGION} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MVMT_ORI_FACILITY' THEN
+		IF COALESCE(rEnv.MVMT_ORI_FACILITY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MVMT_ORI_FACILITY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MVMT_DST_SRVA' THEN
+		IF COALESCE(rEnv.MVMT_DST_SRVA,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MVMT_DST_SRVA} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MVMT_DST_CTRY' THEN
+		IF COALESCE(rEnv.MvmtDestination.DATA.COUNTRY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MvmtDestination.DATA.COUNTRY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MVMT_DST_REGION' THEN
+		IF COALESCE(rEnv.MvmtDestination.DATA.REGION,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MvmtDestination.DATA.REGION} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MVMT_DST_FACILITY' THEN
+		IF COALESCE(rEnv.MVMT_DST_FACILITY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MVMT_DST_FACILITY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'MSG_FORMAT' THEN
+		IF COALESCE(rEnv.MSG_FORMAT,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.MSG_FORMAT} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'ACCT_NO' THEN
+		IF COALESCE(rEnv.ACCT_NO,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.ACCT_NO} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'SHPR_ACCT_NO' THEN
+		IF COALESCE(rEnv.SHPR_ACCT_NO,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.SHPR_ACCT_NO} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'PAYER_ACCT_NO' THEN
+		IF COALESCE(rEnv.PAYER_ACCT_NO,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.PAYER_ACCT_NO} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'GALOPP_CODE' THEN
+		IF COALESCE(rEnv.GALOPP_CODE,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.GALOPP_CODE} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'TARGET_SRVA' THEN
+		IF COALESCE(rEnv.TARGET_SRVA,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.TARGET_SRVA} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'TARGET_CTRY' THEN
+		IF COALESCE(rEnv.Target.DATA.COUNTRY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.Target.DATA.COUNTRY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'TARGET_REGION' THEN
+		IF COALESCE(rEnv.Target.DATA.REGION,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.Target.DATA.REGION} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'TARGET_FACILITY' THEN
+		IF COALESCE(rEnv.TARGET_FACILITY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.TARGET_FACILITY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;		
+		
+	-- Start ADD CK LBBX 03-Mar-2020	
+	WHEN 'CLR_SRVA' THEN
+		IF COALESCE(rEnv.CLR_SRVA,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.CLR_SRVA} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'CLR_CTRY' THEN
+		IF COALESCE(rEnv.Clearence.DATA.COUNTRY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.Clearence.DATA.COUNTRY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'CLR_REGION' THEN
+		IF COALESCE(rEnv.Clearence.DATA.REGION,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.Clearence.DATA.REGION} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'CLR_FACILITY' THEN
+		IF COALESCE(rEnv.CLR_FACILITY,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.CLR_FACILITY} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;		
+		-- SCMS CR Start by Venkat: Enhancing Filter logic  on Service Code (SRV_CD)and Handling Instruction type code (INST_CD)
+		/*
+	WHEN 'SRV_CD' THEN
+		IF COALESCE(rEnv.SRV_CD,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.SRV_CD} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;	
+		*/
+	WHEN 'SRV_CD' THEN
+		IF EXISTS (rEnv.SRV_CD.SRV_CD[]) THEN
+			DECLARE refSrvFilter REFERENCE TO rEnv.SRV_CD.SRV_CD[1];
+			SRVFILTER:WHILE LASTMOVE(refSrvFilter) DO
+						IF rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{refSrvFilter.SRV_CD} IS NOT NULL THEN
+							RETURN TRUE;
+							LEAVE SRVFILTER;
+						END IF;
+						MOVE refSrvFilter NEXTSIBLING NAME 'SRV_CD';	
+					END WHILE;
+			RETURN FALSE;
+		ELSE
+			RETURN FALSE;
+		END IF;
+		
+	WHEN 'INST_CD' THEN
+		IF EXISTS (rEnv.INST_CD.INST_CD[]) THEN
+			DECLARE refInstFilter REFERENCE TO rEnv.INST_CD.INST_CD[1];
+			INSTFILTER:WHILE LASTMOVE(refInstFilter) DO
+						IF rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{refInstFilter.INST_CD} IS NOT NULL THEN
+							RETURN TRUE;
+							LEAVE INSTFILTER;
+						END IF;
+						MOVE refInstFilter NEXTSIBLING NAME 'INST_CD';	
+					END WHILE;
+			RETURN FALSE;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	-- SCMS CR End  by Venkat: Enhancing Filter logic  on Service Code (SRV_CD)and Handling Instruction type code (INST_CD)		
+	
+	-- End ADD CK LBBX 03-Mar-2020	
+		
+	WHEN 'STATUS' THEN
+		IF COALESCE(rEnv.STATUS,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.STATUS} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'CODE_1' THEN
+		IF COALESCE(rEnv.CODE_1,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.CODE_1} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'CODE_2' THEN
+		IF COALESCE(rEnv.CODE_2,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.CODE_2} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'CODE_3' THEN
+		IF COALESCE(rEnv.CODE_3,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.CODE_3} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+
+	WHEN 'CODE_4' THEN
+		IF COALESCE(rEnv.CODE_4,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.CODE_4} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'CODE_5' THEN
+		IF COALESCE(rEnv.CODE_5,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.CODE_5} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'ORIAPP_MSGTYPE' THEN
+		IF COALESCE(rEnv.ORIAPP_MSGTYPE,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.ORIAPP_MSGTYPE} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'ORI_APORIGIN' THEN
+		IF COALESCE(rEnv.ORI_APORIGIN,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.ORI_APORIGIN} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'DOMESTIC_FLAG' THEN
+
+		IF rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.Y <> '' THEN
+			IF COALESCE(rEnv.Origin.DATA.COUNTRY,'') <> '' AND COALESCE(rEnv.Destination.DATA.COUNTRY,'') <> '' THEN
+				IF TRIM(rEnv.Origin.DATA.COUNTRY) = TRIM(rEnv.Destination.DATA.COUNTRY) THEN
+					return true;
+				ELSE
+					return false;
+				END IF;
+			ELSE
+				return false;
+			END IF;
+		ELSE
+			return false;
+		END IF;
+	WHEN 'BB01_USRID' THEN
+		IF COALESCE(rEnv.BB01_USRID,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.BB01_USRID} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'BM01_EVENT' THEN
+		IF COALESCE(rEnv.BM01_EVENT,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.BM01_EVENT} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'SU01_CLRFLAG' THEN
+		IF COALESCE(rEnv.SU01_CLRFLAG,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.SU01_CLRFLAG} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'SU01_SHPSTS' THEN
+		IF COALESCE(rEnv.SU01_SHPSTS,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.SU01_SHPSTS} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'SS01_CHUTENM' THEN
+		IF COALESCE(rEnv.SS01_CHUTENM,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.SS01_CHUTENM} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'CHUTE_NM' THEN
+		IF COALESCE(rEnv.CHUTE_NM,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.CHUTE_NM} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'INV_STATUS' THEN
+		IF COALESCE(rEnv.INV_STATUS,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.INV_STATUS} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	WHEN 'BT_ACC_NO' THEN
+		IF COALESCE(rEnv.BT_ACC_NO,'') <> '' THEN
+			RETURN rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.{rEnv.BT_ACC_NO} IS NOT NULL ;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	--START MIN AMT Check - NAVEEN 02-11-2021
+	WHEN 'MIN_AMT' THEN
+		DECLARE FilterAmt CHARACTER;
+		DECLARE DecAmt DECIMAL 0.00;
+		
+		IF COALESCE(rEnv.VAT_AMT,'') <> '' THEN
+			SET FilterAmt = FIELDVALUE(rowFilterConfigInfo.{chrFilterName}.{chrFilterType}.*[>]);
+			SET DecAmt = ROUND(CAST(FilterAmt AS DECIMAL),2);
+			IF CAST(rEnv.VAT_AMT AS DECIMAL) < DecAmt THEN
+				RETURN TRUE;
+			ELSE 
+				RETURN FALSE;
+			END IF;
+		ELSE
+			RETURN TRUE;
+		END IF;
+	--END MIN AMT Check - NAVEEN 02-11-2021
+	END CASE;
+END;
+-- START DINESH PRB0112674, checkpoint remarks parsing 18-Mar-19
+/*************************************************************************
+* Function Name: fncRemarkParsingEventCM *
+* Parameters: 1. Input Parameter: Checkpoint Code,Remarks Input,Type code and Reason Code in the Reference,Output Reference till BoEvt
+* Description: Parsing the remarks and placing in the fields in EVTCM
+Based on DB configuration
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 13-02-2019 DINESH Initial *
+*************************************************************************/
+CREATE PROCEDURE fncRemarkParsingEventCM(IN chrChkpt CHARACTER,IN chRmk CHARACTER,IN rEnv REFERENCE, INOUT rOutref REFERENCE)
+BEGIN
+
+	DECLARE rowTmp,rowMap ROW;
+	DECLARE chrStndrd,chrRmkTmp,chrStat,chrDelimter,chrTemp,chrCheck CHARACTER '';
+	DECLARE posDelimiterStart,posDelimiterEnd ,intPos,intPosIn INTEGER 1;
+	DECLARE boolChk BOOLEAN FALSE;
+
+	SET rowTmp.Data[]= (SELECT * FROM Database.CHECKPOINT_REMARKS_CONFIG as R WHERE (R.CHECKPOINT=chrChkpt AND R.EVENT_TYPE_CODE=rEnv.TYPE_CODE AND R.REASON_CODE=rEnv.REASON_CODE AND COALESCE(R.RMK_CONFIG_LINK, '') = COALESCE(rEnv.RMK_CONFIG_SEQ, '')));
+
+	SET rowTmp.Standard[] = (SELECT * FROM rowTmp.Data[] AS R WHERE R.STANDARD='Y');
+
+	SET rowTmp.NonStandard[] = (SELECT * FROM rowTmp.Data[] AS R WHERE R.STANDARD='N');
+
+	SET rowTmp.RE_DIRECT[] = (SELECT * FROM rowTmp.Data[] AS R WHERE R.STANDARD='RE');
+
+	SET rowTmp.REMAIN_CONFIG[] = (SELECT * FROM rowTmp.Data[] AS R WHERE COALESCE(R.STANDARD,'')='NON');
+
+	SET rowTmp.RW_CONFIG[] = (SELECT * FROM rowTmp.Data[] AS R WHERE COALESCE(R.STANDARD,'')='RW');
+	IF EXISTS(rowTmp.Standard[]) THEN
+		SET boolChk=TRUE;
+		SET chrStndrd='Y';
+	ELSEIF EXISTS(rowTmp.NonStandard[]) THEN
+		SET boolChk=TRUE;
+		SET chrStndrd='N';
+	ELSEIF EXISTS(rowTmp.RE_DIRECT[]) THEN
+		SET boolChk=TRUE;
+		SET chrStndrd='RE';
+	ELSEIF EXISTS(rowTmp.RW_CONFIG[]) THEN
+		SET boolChk=TRUE;
+		SET chrStndrd='RW';
+	ELSEIF EXISTS(rowTmp.REMAIN_CONFIG[]) THEN
+		SET boolChk=TRUE;
+		SET chrStndrd='NON';
+	END IF;
+
+	IF chrStndrd='Y' THEN
+
+		IF SINGULAR(rowTmp.Standard[]) THEN
+
+			IF rowTmp.Standard.SUB_POS='AFTER' THEN
+
+				SET chrRmkTmp=COALESCE(TRIM(SUBSTRING(chRmk AFTER TRIM(rowTmp.Standard.KEY))),'');
+				IF chrRmkTmp <> '' THEN
+					SET rowMap.Data.Elem[]=(SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.Standard[] AS R);
+					CREATE LASTCHILD OF rowMap.Data.Elem NAME 'INPUTVALUE' VALUE chrRmkTmp;
+				END IF;
+			ELSEIF rowTmp.Standard.SUB_POS='BEFORE' THEN
+
+				SET chrRmkTmp=COALESCE(TRIM(SUBSTRING(chRmk BEFORE TRIM(rowTmp.Standard.KEY))),'');
+				IF chrRmkTmp <> '' THEN
+					SET rowMap.Data.Elem[]=(SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.Standard[] AS R);
+					CREATE LASTCHILD OF rowMap.Data[1].Elem NAME 'INPUTVALUE' VALUE chrRmkTmp;
+				END IF;
+			ELSEIF rowTmp.Standard.SUB_POS='DIRECT' THEN
+
+				SET chrRmkTmp=COALESCE(TRIM(chRmk),'');
+				IF chrRmkTmp <> '' THEN
+					SET rowMap.Data.Elem[]=(SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.Standard[] AS R);
+					CREATE LASTCHILD OF rowMap.Data[1].Elem NAME 'INPUTVALUE' VALUE chrRmkTmp;
+				END IF ;
+			END IF;
+		ELSE
+			DECLARE rStdRef REFERENCE TO rowTmp.Standard[1];
+			WHILE LASTMOVE(rStdRef) DO
+
+				IF rStdRef.SUB_POS='AFTER' THEN					
+
+
+					SET chrRmkTmp=COALESCE(TRIM(SUBSTRING(chRmk AFTER rStdRef.KEY)),'');
+					IF chrRmkTmp <> '' THEN
+						SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.Standard[] AS R WHERE R.POS=CAST(intPos AS CHARACTER);
+						CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrRmkTmp;
+						SET intPos=intPos+1;
+					END IF;
+				ELSEIF rStdRef.SUB_POS='BEFORE' THEN
+
+					SET chrRmkTmp=COALESCE(TRIM(SUBSTRING(chRmk BEFORE rStdRef.KEY)),'');
+
+					IF chrRmkTmp <> '' THEN
+						SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.Standard[] AS R WHERE R.POS=CAST(intPos AS CHARACTER);
+						CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrRmkTmp;
+						SET intPos=intPos+1;
+					END IF;
+				ELSEIF rStdRef.SUB_POS='DIRECT' THEN
+
+					SET chrRmkTmp=TRIM(COALESCE(chRmk,''));
+					IF chrRmkTmp <> '' THEN
+						SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.Standard[] AS R WHERE R.POS=CAST(intPos AS CHARACTER);
+						CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrRmkTmp;
+						SET intPos=intPos+1;
+					END IF;
+				END IF;
+				MOVE rStdRef NEXTSIBLING NAME 'Standard';
+			END WHILE;
+		END IF;
+	ELSEIF chrStndrd='N' THEN
+		--Chloe 15-July-2021 Set chrRmkTmp with chRmk
+		SET chrRmkTmp = chRmk;
+		
+		SET rowTmp.Static_Config[]=(SELECT R.STATIC_STRING FROM rowTmp.NonStandard[] as R WHERE R.CHECKPOINT=chrChkpt AND R.EVENT_TYPE_CODE=rEnv.TYPE_CODE AND R.REASON_CODE=rEnv.REASON_CODE AND COALESCE(R.STATIC_STRING,'')<>'');
+
+		IF EXISTS(rowTmp.Static_Config[]) THEN
+
+			SET chrRmkTmp= SUBSTRING(chRmk AFTER rowTmp.Static_Config[1].STATIC_STRING);
+			SET chrDelimter=rowTmp.NonStandard[1].DELIMTER;
+
+			SET posDelimiterEnd =POSITION(chrDelimter IN chrRmkTmp);
+
+			WHILE posDelimiterEnd <>0 DO
+
+				SET chrTemp =COALESCE(TRIM(SUBSTRING(chrRmkTmp FROM posDelimiterStart FOR posDelimiterEnd - posDelimiterStart)),'');				
+
+
+				IF chrTemp <> '' THEN
+					SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.NonStandard[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);
+					CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrTemp;
+					SET intPos=intPos+1;
+					SET intPosIn=intPosIn+1;
+		
+				ELSE
+					SET intPosIn=intPosIn+1;
+				END IF;
+				SET chrRmkTmp = SUBSTRING(chrRmkTmp FROM posDelimiterEnd + 1);
+				SET posDelimiterEnd = POSITION( chrDelimter IN chrRmkTmp);
+
+
+			END WHILE;
+			IF chrRmkTmp <> '' THEN
+				SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.NonStandard[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);
+				CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrRmkTmp;
+			END IF;
+		ELSE
+			SET chrDelimter=rowTmp.NonStandard[1].DELIMTER;
+
+			SET posDelimiterEnd =POSITION(chrDelimter IN chrRmkTmp);
+
+			WHILE posDelimiterEnd <>0 DO
+
+				SET chrTemp =COALESCE(TRIM(SUBSTRING(chrRmkTmp FROM posDelimiterStart FOR posDelimiterEnd - posDelimiterStart)),'');				
+
+
+				IF chrTemp <> '' THEN
+					SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.NonStandard[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);
+					CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrTemp;
+					SET intPos=intPos+1;
+					SET intPosIn=intPosIn+1;
+		
+				ELSE
+					SET intPosIn=intPosIn+1;
+				END IF;
+				SET chrRmkTmp = SUBSTRING(chrRmkTmp FROM posDelimiterEnd + 1);
+				SET posDelimiterEnd = POSITION( chrDelimter IN chrRmkTmp);
+
+
+			END WHILE;
+			IF chrRmkTmp <> '' THEN
+				SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.NonStandard[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);
+				CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrRmkTmp;
+			END IF;
+
+		END IF;
+
+	ELSEIF chrStndrd='RE' THEN
+
+		SET chrRmkTmp= COALESCE(SUBSTRING(chRmk AFTER rowTmp.RE_DIRECT[1].STATIC_STRING),'');
+
+		IF LENGTH(TRIM(chrRmkTmp)) =10 THEN
+			SET chrCheck='S';
+			SET rowMap.Data.Elem[]=(SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.RE_DIRECT[] AS R WHERE R.POS='S');
+			CREATE LASTCHILD OF rowMap.Data.Elem[1] NAME 'INPUTVALUE' VALUE chrRmkTmp;
+		ELSEIF LENGTH(TRIM(chrRmkTmp)) > 10 THEN
+			SET chrCheck='P';
+			SET rowMap.Data.Elem[]=(SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.RE_DIRECT[] AS R WHERE R.POS='P');
+			CREATE LASTCHILD OF rowMap.Data.Elem[1] NAME 'INPUTVALUE' VALUE chrRmkTmp;
+		END IF;
+	ELSEIF chrStndrd='NON' THEN
+
+		SET chrRmkTmp= COALESCE(SUBSTRING(chRmk AFTER TRIM(rowTmp.REMAIN_CONFIG[1].STATIC_STRING)),'');
+
+		SET chrRmkTmp=COALESCE(TRIM(SUBSTRING(chrRmkTmp BEFORE TRIM(rowTmp.REMAIN_CONFIG[1].STATIC_STRING2))),'');
+
+		IF chrRmkTmp <> '' THEN
+			SET rowMap.Data.Elem[]=(SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.REMAIN_CONFIG[] AS R );
+
+			CREATE LASTCHILD OF rowMap.Data.Elem[1] NAME 'INPUTVALUE' VALUE chrRmkTmp;
+		END IF;
+
+	ELSEIF chrStndrd='RW' THEN
+
+		DECLARE chrWgt,chrWdth,chrHgt,chrLgth,chrTmp CHARACTER '';
+		
+		
+
+		SET chrWgt=COALESCE(SUBSTRING(SUBSTRING(chRmk BEFORE '>') AFTER '<'),'');
+		IF chrWgt <> '' THEN
+			SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.RW_CONFIG[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);
+			CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrWgt;
+			SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.RW_CONFIG[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);
+			SET intPos=intPos+1;
+			SET intPosIn=intPosIn+1;
+		
+		ELSE
+			SET intPosIn=intPosIn+1;
+		END IF;
+		SET chrTmp = SUBSTRING(chRmk AFTER '> <');
+		
+		
+		SET chrWdth=COALESCE(SUBSTRING(chrTmp BEFORE 'x'),'');
+		IF chrWdth <> '' THEN
+			SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.RW_CONFIG[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);
+			CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrWdth;
+			SET intPos=intPos+1;
+			SET intPosIn=intPosIn+1;
+		ELSE
+			SET intPosIn=intPosIn+1;
+		END IF;
+		
+		SET chrTmp = SUBSTRING(chRmk AFTER 'x'); 
+		
+		SET chrHgt=COALESCE(SUBSTRING(chrTmp BEFORE 'x'),'');
+		IF chrHgt <> '' THEN
+			SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.RW_CONFIG[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);
+			CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE chrHgt;
+			SET intPos=intPos+1;
+			SET intPosIn=intPosIn+1;
+		ELSE
+			SET intPosIn=intPosIn+1;
+		END IF;
+		
+		
+		SET chrLgth=COALESCE(SUBSTRING(SUBSTRING(chrTmp AFTER 'x') BEFORE '>'),'');
+		IF chrLgth <> '' THEN
+			SET rowMap.Data[intPos].Elem[]=SELECT R.DATAEL_GROUP,R.COND_DATAEL,R.COND_DATAELVAL,R.DATAEL FROM rowTmp.RW_CONFIG[] AS R WHERE R.POS=CAST(intPosIn AS CHARACTER);		
+			CREATE LASTCHILD OF rowMap.Data[intPos].Elem NAME 'INPUTVALUE' VALUE COALESCE(chrLgth,'');
+		END IF;
+	END IF;
+	IF boolChk THEN
+		CALL CreateCheckpointFieldsEvtcm(rOutref,rowMap);
+	END IF;
+END;
+
+
+CREATE PROCEDURE CreateCheckpointFieldsEvtcm(INOUT rOutref REFERENCE,IN rowMap REFERENCE )
+BEGIN
+
+
+	DECLARE rEnv REFERENCE TO rowMap.Data[1];
+	DECLARE rowMapping,rowTmp ROW;
+	DECLARE intPos,intOps INTEGER 1;
+	DECLARE intDataEl,intDataElgrp,intDtlGrp INTEGER 1;
+	PROCESS1:WHILE LASTMOVE(rEnv) DO
+
+	SET rowMapping.Fields[] = rEnv.Elem[];
+	IF COALESCE(rEnv.Elem.INPUTVALUE,'')='' THEN
+		MOVE rEnv NEXTSIBLING NAME 'Data';
+		ITERATE PROCESS1;
+	END IF;
+	IF rowMapping.Fields.DATAEL_GROUP LIKE 'OpsFncIdAdd%' THEN
+		SET rowMapping.OpsFnc[]=(SELECT * FROM rOutref.Evt.COpsFncId.OpsFncIdAddDtEl[] AS R WHERE R.Cd=rowMapping.Fields.DATAEL);
+		IF NOT EXISTS(rowMapping.OpsFnc[]) THEN
+			SET intOps=CARDINALITY(rOutref.Evt.COpsFncId.OpsFncIdAddDtEl[]);
+			SET intOps=intOps+1;
+			SET rOutref.Evt.COpsFncId.OpsFncIdAddDtEl[intOps].Cd=rowMapping.Fields.DATAEL;
+			SET rOutref.Evt.COpsFncId.OpsFncIdAddDtEl[intOps].Val=TRIM(rowMapping.Fields.INPUTVALUE);
+		END IF;
+		MOVE rEnv NEXTSIBLING NAME 'Data';
+		ITERATE PROCESS1;
+	END IF;
+	SET intDataElgrp=CARDINALITY(rOutref.Evt.DatElGrp[]);
+	DECLARE rDataElGrp REFERENCE TO rOutref.Evt.DatElGrp[1];
+	IF EXISTS(rowMapping.Fields[]) THEN
+		DECLARE RefRow REFERENCE TO rowMapping.Fields[1];
+		PROCESS: WHILE LASTMOVE(rDataElGrp) DO
+
+			IF rDataElGrp.(XMLNSC.Attribute)Cd=rowMapping.Fields.DATAEL_GROUP THEN
+				LEAVE PROCESS;
+			END IF;
+			SET intDtlGrp=intDtlGrp+1;
+			MOVE rDataElGrp NEXTSIBLING NAME 'DatElGrp';
+		END WHILE;
+
+		SET rowMapping.Commongrp[]=SELECT R.DatEl[] FROM rOutref.Evt.DatElGrp[] AS R WHERE R.(XMLNSC.Attribute)Cd = rowMapping.Fields.DATAEL_GROUP;
+		SET intDataEl= CARDINALITY(rowMapping.Commongrp.DatEl[]);
+		IF EXISTS(rowMapping.Commongrp[]) AND intDataEl > 0 THEN
+
+			IF COALESCE(rowMapping.Fields.COND_DATAELVAL,'')<>'' AND COALESCE(rowMapping.Fields.COND_DATAEL,'')<>'' AND COALESCE(rowMapping.Fields.DATAEL,'')<>'' THEN
+				SET rowMapping.FieldExists =THE(SELECT B.Val,B.Cd FROM rowMapping.Commongrp[] AS A ,A.DatEl[] AS B ,A.DatEl[] AS C ,A.DatEl[] AS D WHERE B.Cd=COALESCE(rowMapping.Fields.DATAEL,'') AND D.Cd=COALESCE(rowMapping.Fields.COND_DATAELVAL,'') AND C.Cd=COALESCE(rowMapping.Fields.COND_DATAEL,'')) ;
+			ELSE
+				SET rowMapping.FieldExists =THE(SELECT B.Val,B.Cd FROM rowMapping.Commongrp[] AS A ,A.DatEl[] AS B WHERE B.Cd=COALESCE(rowMapping.Fields.DATAEL,''));
+			END IF;
+			IF NOT EXISTS(rowMapping.FieldExists[]) THEN
+				IF COALESCE(rowMapping.Fields.COND_DATAEL,'') ='' AND COALESCE(rowMapping.Fields.COND_DATAELVAL,'')='' AND COALESCE(rowMapping.Fields.DATAEL,'')<>'' THEN
+					SET intDataEl=intDataEl+1;
+					SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Cd=TRIM(rowMapping.Fields.DATAEL);
+
+					SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Val=TRIM(rowMapping.Fields.INPUTVALUE);
+
+				ELSEIF COALESCE(rowMapping.Fields.COND_DATAEL,'') <> '' AND COALESCE(rowMapping.Fields.COND_DATAELVAL,'') <> '' AND COALESCE(rowMapping.Fields.DATAEL,'')<>'' THEN
+
+					SET rowMapping.FieldExists =THE(SELECT B.Val,B.Cd FROM rowMapping.Commongrp[] AS A ,A.DatEl[] AS B WHERE B.Cd=COALESCE(rowMapping.Fields.COND_DATAEL,'') AND B.Val=COALESCE(rowMapping.Fields.COND_DATAELVAL,''));
+					IF NOT EXISTS(rowMapping.FieldExists[]) THEN
+						SET intDataEl=intDataEl+1;
+						SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Cd=rowMapping.Fields.COND_DATAEL;
+						SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Val = rowMapping.Fields.COND_DATAELVAL;
+
+					END IF;
+
+					SET intDataEl=intDataEl+1;
+					SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Cd=rowMapping.Fields.DATAEL;
+
+					SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Val=TRIM(rowMapping.Fields.INPUTVALUE);
+				END IF;
+			END IF;
+		ELSE
+
+			SET intDataEl=1;
+			SET rOutref.Evt.DatElGrp[intDtlGrp].(XMLNSC.Attribute)Cd=TRIM(rowMapping.Fields.DATAEL_GROUP);
+
+			IF COALESCE(rowMapping.Fields.COND_DATAEL,'') ='' AND COALESCE(rowMapping.Fields.COND_DATAELVAL,'')='' AND COALESCE(rowMapping.Fields.DATAEL,'')<>'' THEN
+				SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Cd=TRIM(rowMapping.Fields.DATAEL);
+
+				SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Val=TRIM(rowMapping.Fields.INPUTVALUE);
+
+			ELSEIF COALESCE(rowMapping.Fields.COND_DATAEL,'') <> '' AND COALESCE(rowMapping.Fields.COND_DATAELVAL,'') <> '' AND COALESCE(rowMapping.Fields.DATAEL,'')<>'' THEN
+				SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Cd=TRIM(rowMapping.Fields.COND_DATAEL);
+				SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Val = TRIM(rowMapping.Fields.COND_DATAELVAL);
+				SET intDataEl=intDataEl+1;
+				SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Cd=TRIM(rowMapping.Fields.DATAEL);
+
+				SET rOutref.Evt.DatElGrp[intDtlGrp].DatEl[intDataEl].Val=TRIM(rowMapping.Fields.INPUTVALUE);
+
+			ELSE
+				SET rOutref.Evt.DatElGrp[intDtlGrp]=NULL;
+
+			END IF;
+		END IF;
+	END IF;
+	SET intDtlGrp=1;
+	MOVE rEnv NEXTSIBLING NAME 'Data';
+END WHILE;
+
+
+END;
+-- END DINESH PRB0112674, checkpoint remarks parsing 18-Mar-19
+	
+-- START ChloeTeo 04-Dec-2020 VAT22:Mapping for ShpDoc Based on Priority Value
+/*************************************************************************
+* Function Name: fncGetLeastPriIndex *
+* Parameters: 1. Input Parameter: Input Message Shp Reference, Database DATAMAPPING_TABLE (TYP:DOCTYP_PRIORITY_DATA)Values
+* Description: Select the shipment document index that has the least priority value based on DocTyCd
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 04-12-2020 ChloeTeo Initial *
+*************************************************************************/
+CREATE FUNCTION fncGetLeastPriIndex(inputShp REFERENCE, rowPriorityData REFERENCE) RETURNS INTEGER
+	BEGIN
+		-- Venkat Start 27/11/2020 : Find correct Shpdoc based on DocTyp and Priority values
+		DECLARE shpDocCount, curCount INTEGER 0;
+		DECLARE shpDocIndex INTEGER 1;
+		DECLARE inShpdocPriority,envShpdocPriority, priorityVal, docType CHARACTER;
+		DECLARE refShpDoc1 REFERENCE TO inputShp.ShpDoc[1];
+		SET shpDocCount = CARDINALITY(inputShp.ShpDoc[]);
+		IF shpDocCount > 1 THEN
+			WHILE LASTMOVE(refShpDoc1) DO
+				--ChloeTeo START 03/12/2020 : To cater for no docType ShpDoc, check if there is doctype or not.
+				SET docType = COALESCE(refShpDoc1.DocTyCd, '');
+				IF docType = '' THEN 
+					SET docType = '*BLANK*';
+				END IF;
+				--ChloeTeo END 03/12/2020 : To cater for no docType ShpDoc, check if there is doctype or not.
+				SET curCount = curCount + 1;
+				IF EXISTS(SELECT R.TO_VAL FROM rowPriorityData.data[] AS R WHERE R.FROM_VAL=COALESCE(docType,'')) THEN
+					IF COALESCE(priorityVal,'') <> '' THEN
+						SET inShpdocPriority  = COALESCE(TRIM(THE(SELECT ITEM R.TO_VAL FROM rowPriorityData.data[]  AS R WHERE R.FROM_VAL=COALESCE(docType,''))),'') ;
+						SET envShpdocPriority = priorityVal;
+						IF CAST(inShpdocPriority AS INTEGER) < CAST(envShpdocPriority AS INTEGER) THEN
+							SET priorityVal = inShpdocPriority ;
+							--ChloeTeo START 02/12/2020: Make sure to get the current ShpDoc
+							SET shpDocIndex = curCount;
+							--ChloeTeo END 02/12/2020: Make sure to get the current ShpDoc
+						END IF;
+					ELSE
+						SET priorityVal = COALESCE(TRIM(THE(SELECT ITEM  R.TO_VAL FROM rowPriorityData.data[] AS R WHERE R.FROM_VAL=COALESCE(docType,''))),'') ;
+						--ChloeTeo START 02/12/2020: Make sure to get the current ShpDoc
+						SET shpDocIndex = curCount;
+						--ChloeTeo END 02/12/2020: Make sure to get the current ShpDoc
+					END IF;
+				END IF;
+				MOVE refShpDoc1 NEXTSIBLING NAME 'ShpDoc';
+			END WHILE;
+		END IF;	
+		RETURN shpDocIndex;
+		-- Venkat END 27/11/2020 : Find correct Shpdoc based on DocTyp and Priority values
+	END;
+	--END ChloeTeo 04-Dec-2020 VAT22:Mapping for ShpDoc Based on Priority Value
+
+-- START ChloeTeo 19-Feb-2021 Piece_UOM_Conversion
+/*************************************************************************
+* Function Name: fncConvertPieceUnit *
+* Parameters: 1. Input Parameter: fromUnit, changeTo_Unit, convertValue
+* Description: Convert the convertValue to changeTo_Unit (either, KG to LB or vice versa, IN to CM or vice versa)
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 19-02-2021 ChloeTeo Initial *
+*************************************************************************/
+CREATE FUNCTION fncConvertPieceUnit(fromUnit CHARACTER,toUnit CHARACTER, convertValue CHARACTER) RETURNS CHARACTER
+BEGIN
+	DECLARE outputValue CHAR '';
+	
+	IF convertValue IS NOT NULL AND convertValue <> '' THEN
+	
+		IF fromUnit = 'LB' AND toUnit = 'KG' THEN
+			--Converting to KG from LB :  1 Pound = 0.453592 Kilogram
+			SET outputValue = CAST((CAST(convertValue AS DECIMAL) * 0.453592) AS CHARACTER);
+		ELSEIF fromUnit = 'KG' AND toUnit = 'LB' THEN
+			--Converting to LB from KG :  1 Kilogram = 2.20462 Pound
+			SET outputValue = CAST((CAST(convertValue AS DECIMAL) * 2.20462) AS CHARACTER);
+		ELSEIF fromUnit = 'IN' AND toUnit = 'CM' THEN
+			--Converting to CM from IN :  1 Inch = 2.54CM	
+			SET outputValue = CAST((CAST(convertValue AS DECIMAL) * 2.54) AS CHARACTER);
+		ELSEIF fromUnit = 'CM' AND toUnit = 'IN' THEN
+			--Converting to IN from CM :  1CM = 0.393701 Inch		
+			SET outputValue = CAST((CAST(convertValue AS DECIMAL) * 0.393701) AS CHARACTER);
+		END IF;
+	END IF;
+	RETURN outputValue;
+END;
+
+
+
+-- START Aishah 10-Sept-2021 DHL to ISO Country Code Conversion
+/**********************************************************************************************************
+* Function Name: fncDHLtoISOCountryConversion *
+* Parameters: 1. Input Parameter: chrDHLISOConv,chrDHLCtryCd,chrPostcode,chrCity,chrSuburb,rowDHL_ISO_Result
+* Description: Convert the DHL Country Code to ISO Country Code
+* Version Date Author Description *
+* =============== =========== ================== =========================================================*
+* 1 10-09-2021 Aishah Initial *
+*************************************************************************/
+CREATE FUNCTION fncDHLtoISOCountryConversion(chrDHLISOConv CHARACTER,chrDHLCtryCd CHARACTER, chrPostcode CHARACTER, chrCity CHARACTER, chrSuburb CHARACTER, rowDHL_ISO_Result REFERENCE) RETURNS CHARACTER
+BEGIN
+	DECLARE chrISOCtryCd CHAR '';
+
+	IF COALESCE(TRIM(chrDHLISOConv),'') = 'C' THEN -- COUNTRY
+			
+		SET	chrISOCtryCd =	COALESCE(TRIM(THE(SELECT ITEM A.ISO_CTRY 
+							FROM rowDHL_ISO_Result.CtryDATA[] AS A)),'');
+							-- FROM Database.DHL_ISO_COUNTRY AS A
+							-- WHERE COALESCE(TRIM(A.DHL_CTRY),'') = COALESCE(TRIM(chrDHLCtryCd),''))),'');
+										
+	ELSEIF COALESCE(TRIM(chrDHLISOConv),'') = 'CP' THEN -- POSTCODE AND COUNTRY
+					
+		SET	chrISOCtryCd = 	COALESCE(TRIM(THE(SELECT ITEM A.ISO_CTRY
+							FROM rowDHL_ISO_Result.CtryDATA[] AS A
+							-- FROM Database.DHL_ISO_COUNTRY AS A
+							-- WHERE COALESCE(TRIM(A.DHL_CTRY),'') = COALESCE(TRIM(chrDHLCtryCd),'')
+							WHERE COALESCE(TRIM(A.POSTCODE),'') = COALESCE(TRIM(chrPostcode),''))),'');
+					
+	ELSEIF COALESCE(TRIM(chrDHLISOConv),'') = 'CS' THEN -- SUBURB + CITY + COUNTRY
+				
+		SET	chrISOCtryCd =	COALESCE(TRIM(THE(SELECT ITEM A.ISO_CTRY 
+							FROM rowDHL_ISO_Result.CtryDATA[] AS A
+							-- FROM Database.DHL_ISO_COUNTRY AS A
+							-- WHERE COALESCE(TRIM(A.DHL_CTRY),'') = COALESCE(TRIM(chrDHLCtryCd),'')
+							WHERE COALESCE(TRIM(A.CITY),'') = COALESCE(TRIM(chrCity),'')
+							AND COALESCE(TRIM(A.SUBURB),'') = COALESCE(TRIM(chrSuburb),''))),'');
+
+	ELSEIF COALESCE(TRIM(chrDHLISOConv),'') = 'CT' THEN -- CITY AND COUNTRY
+									
+		SET	chrISOCtryCd =	COALESCE(TRIM(THE(SELECT ITEM A.ISO_CTRY 
+							FROM rowDHL_ISO_Result.CtryDATA[] AS A
+							-- FROM Database.DHL_ISO_COUNTRY AS A
+							-- WHERE COALESCE(TRIM(A.DHL_CTRY),'') = COALESCE(TRIM(chrDHLCtryCd),'')
+							WHERE COALESCE(TRIM(A.CITY),'') = COALESCE(TRIM(chrCity),''))),'');
+										
+	ELSE 
+		SET	chrISOCtryCd = COALESCE(TRIM(chrDHLCtryCd),'');
+	END IF;
+
+	RETURN chrISOCtryCd;
+END;
+-- END Aishah 10-Sept-2021 DHL to ISO Country Code Conversion	

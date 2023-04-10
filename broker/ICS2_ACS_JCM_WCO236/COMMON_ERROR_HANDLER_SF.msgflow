@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ecore:EPackage xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:ComIbmCompute.msgnode="ComIbmCompute.msgnode" xmlns:ComIbmFilter.msgnode="ComIbmFilter.msgnode" xmlns:ComIbmMQOutput.msgnode="ComIbmMQOutput.msgnode" xmlns:ComIbmThrow.msgnode="ComIbmThrow.msgnode" xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore" xmlns:eflow="http://www.ibm.com/wbi/2005/eflow" xmlns:utility="http://www.ibm.com/wbi/2005/eflow_utility" xmi:id="EPackage_1" nsURI="COMMON_ERROR_HANDLER_SF.msgflow" nsPrefix="COMMON_ERROR_HANDLER_SF.msgflow">
+  <eClassifiers xmi:type="eflow:FCMComposite" xmi:id="FCMComposite_1" name="FCMComposite_1">
+    <eSuperTypes href="http://www.ibm.com/wbi/2005/eflow#//FCMBlock"/>
+    <eStructuralFeatures xmi:type="ecore:EAttribute" xmi:id="Property.queueManagerName" name="queueManagerName">
+      <eType xmi:type="ecore:EDataType" href="http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    </eStructuralFeatures>
+    <eStructuralFeatures xmi:type="ecore:EAttribute" xmi:id="Property.queueName" name="queueName">
+      <eType xmi:type="ecore:EDataType" href="http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    </eStructuralFeatures>
+    <eStructuralFeatures xmi:type="ecore:EAttribute" xmi:id="Property.persistenceMode" name="persistenceMode" lowerBound="1" eType="//%" defaultValueLiteral="automatic"/>
+    <eStructuralFeatures xmi:type="ecore:EAttribute" xmi:id="Property.QueueManager" name="QueueManager">
+      <eType xmi:type="ecore:EDataType" href="http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    </eStructuralFeatures>
+    <eStructuralFeatures xmi:type="ecore:EAttribute" xmi:id="Property.QueueName" name="QueueName">
+      <eType xmi:type="ecore:EDataType" href="http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    </eStructuralFeatures>
+    <eStructuralFeatures xmi:type="ecore:EAttribute" xmi:id="Property.PersistenceMode" name="PersistenceMode" lowerBound="1" eType="//%.1" defaultValueLiteral="automatic"/>
+    <eStructuralFeatures xmi:type="ecore:EAttribute" xmi:id="Property.DB_REPROCESS_SLEEPTIME" name="DB_REPROCESS_SLEEPTIME" defaultValueLiteral="5">
+      <eType xmi:type="ecore:EDataType" href="http://www.eclipse.org/emf/2002/Ecore#//EInt"/>
+    </eStructuralFeatures>
+    <eStructuralFeatures xmi:type="ecore:EAttribute" xmi:id="Property.QUEUE_BACKOUT_COUNT" name="QUEUE_BACKOUT_COUNT" defaultValueLiteral="3">
+      <eType xmi:type="ecore:EDataType" href="http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    </eStructuralFeatures>
+    <translation xmi:type="utility:TranslatableString" xmi:id="TranslatableString_1" key="COMMON_ERROR_HANDLER_SF" bundleName="COMMON_ERROR_HANDLER_SF" pluginId="DMG_EG_MS_DefaultApplication"/>
+    <colorGraphic16 xmi:type="utility:GIFFileGraphic" xmi:id="GIFFileGraphic_1" resourceName="platform:/plugin/DMG_EG_MS_DefaultApplication/icons/full/obj16/COMMON_ERROR_HANDLER_SF.gif"/>
+    <colorGraphic32 xmi:type="utility:GIFFileGraphic" xmi:id="GIFFileGraphic_2" resourceName="platform:/plugin/DMG_EG_MS_DefaultApplication/icons/full/obj30/COMMON_ERROR_HANDLER_SF.gif"/>
+    <composition xmi:id="Composition_1">
+      <nodes xmi:type="eflow:FCMSource" xmi:id="InTerminal.Failure" location="8,10">
+        <translation xmi:type="utility:TranslatableString" xmi:id="TranslatableString_2" key="InTerminal.Failure" bundleName="COMMON_ERROR_HANDLER_SF" pluginId="DMG_EG_MS_DefaultApplication"/>
+      </nodes>
+      <nodes xmi:type="ComIbmCompute.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_1" location="329,29" computeExpression="esql://routine/#COMMON_ERROR_HANDLER_SF_Compute.Main" computeMode="all">
+        <translation xmi:type="utility:ConstantString" xmi:id="ConstantString_1" string="Build XML error message"/>
+      </nodes>
+      <nodes xmi:type="ComIbmMQOutput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_7" location="480,25" transactionMode="no" persistenceMode="yes">
+        <translation xmi:type="utility:ConstantString" string="Error Message"/>
+      </nodes>
+      <nodes xmi:type="eflow:FCMSource" xmi:id="InTerminal.MainlineIn" location="7,214">
+        <translation xmi:type="utility:TranslatableString" xmi:id="TranslatableString_11" key="InTerminal.MainlineIn" bundleName="COMMON_ERROR_HANDLER_SF" pluginId="DMG_EG_MS_DefaultApplication"/>
+      </nodes>
+      <nodes xmi:type="eflow:FCMSource" xmi:id="InTerminal.Catch" location="4,128">
+        <translation xmi:type="utility:TranslatableString" xmi:id="TranslatableString_9" key="InTerminal.Catch" bundleName="COMMON_ERROR_HANDLER_SF" pluginId="DMG_EG_MS_DefaultApplication"/>
+      </nodes>
+      <nodes xmi:type="ComIbmFilter.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_3" location="123,209" filterExpression="esql://routine/#COMMON_ERROR_HANDLER_SF_MainlineFilter.Main">
+        <translation xmi:type="utility:ConstantString" xmi:id="ConstantString_2" string="BackoutCount = 0?"/>
+      </nodes>
+      <nodes xmi:type="eflow:FCMSink" xmi:id="OutTerminal.MainlineOut" location="280,213">
+        <translation xmi:type="utility:TranslatableString" xmi:id="TranslatableString_10" key="OutTerminal.MainlineOut" bundleName="COMMON_ERROR_HANDLER_SF" pluginId="DMG_EG_MS_DefaultApplication"/>
+      </nodes>
+      <nodes xmi:type="ComIbmMQOutput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_9" location="152,10" queueName="QL.MBRK.ERR.LOG">
+        <translation xmi:type="utility:ConstantString" string="Original Message"/>
+      </nodes>
+      <nodes xmi:type="ComIbmThrow.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_5" location="593,132">
+        <translation xmi:type="utility:ConstantString" string="Throw"/>
+      </nodes>
+      <nodes xmi:type="ComIbmCompute.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_4" location="236,130" computeExpression="esql://routine/#COMMON_ERROR_HANDLER_SF_Process.Main" computeMode="all">
+        <translation xmi:type="utility:ConstantString" string="Process"/>
+      </nodes>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_4" targetNode="OutTerminal.MainlineOut" sourceNode="FCMComposite_1_3" sourceTerminalName="OutTerminal.true" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_5" targetNode="OutTerminal.MainlineOut" sourceNode="FCMComposite_1_3" sourceTerminalName="OutTerminal.unknown" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_7" targetNode="FCMComposite_1_5" sourceNode="FCMComposite_1_7" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_20" targetNode="FCMComposite_1_7" sourceNode="FCMComposite_1_1" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_6" targetNode="FCMComposite_1_3" sourceNode="InTerminal.MainlineIn" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_1" targetNode="FCMComposite_1_4" sourceNode="InTerminal.Catch" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_12" targetNode="FCMComposite_1_1" sourceNode="FCMComposite_1_4" sourceTerminalName="OutTerminal.out1" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_13" targetNode="FCMComposite_1_9" sourceNode="InTerminal.Failure" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_19" targetNode="FCMComposite_1_5" sourceNode="FCMComposite_1_4" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+    </composition>
+    <propertyOrganizer xmi:id="PropertyOrganizer_1">
+      <propertyDescriptor groupName="Group.ErrorMessage" propertyEditor="com.ibm.etools.mft.ibmnodes.editors.mq.MQOutputQueueManagerEditor" configurable="true" describedAttribute="Property.queueManagerName">
+        <propertyName xmi:type="utility:TranslatableString" key="Property.queueManagerName" bundleName="ComIbmMQOutput" pluginId="com.ibm.etools.mft.ibmnodes.definitions"/>
+        <propertyDescriptor groupName="Group.ErrorMessage" propertyEditor="com.ibm.etools.mft.ibmnodes.editors.mq.MQQueueNameEditor" configurable="true" describedAttribute="Property.queueName">
+          <propertyName xmi:type="utility:TranslatableString" key="Property.queueName" bundleName="ComIbmMQOutput" pluginId="com.ibm.etools.mft.ibmnodes.definitions"/>
+          <propertyDescriptor groupName="Group.ErrorMessage" describedAttribute="Property.persistenceMode">
+            <propertyName xmi:type="utility:TranslatableString" key="Property.persistenceMode" bundleName="ComIbmMQOutput" pluginId="com.ibm.etools.mft.ibmnodes.definitions"/>
+            <propertyDescriptor groupName="Group.OriginalMessage" propertyEditor="com.ibm.etools.mft.ibmnodes.editors.mq.MQOutputQueueManagerEditor" configurable="true" describedAttribute="Property.QueueManager">
+              <propertyName xmi:type="utility:TranslatableString" key="Property.QueueManager" bundleName="COMMON_ERR_HANDLE_SF" pluginId="COMMON_ERROR_MSGFLOWS"/>
+              <propertyDescriptor groupName="Group.OriginalMessage" propertyEditor="com.ibm.etools.mft.ibmnodes.editors.mq.MQQueueNameEditor" configurable="true" describedAttribute="Property.QueueName">
+                <propertyName xmi:type="utility:TranslatableString" key="Property.QueueName" bundleName="COMMON_ERR_HANDLE_SF" pluginId="COMMON_ERROR_MSGFLOWS"/>
+                <propertyDescriptor groupName="Group.OriginalMessage" describedAttribute="Property.PersistenceMode">
+                  <propertyName xmi:type="utility:TranslatableString" key="Property.PersistenceMode" bundleName="COMMON_ERR_HANDLE_SF" pluginId="COMMON_ERROR_MSGFLOWS"/>
+                  <propertyDescriptor groupName="Group.Basic" configurable="true" userDefined="true" describedAttribute="Property.DB_REPROCESS_SLEEPTIME">
+                    <propertyName xmi:type="utility:TranslatableString" key="Property.DB_REPROCESS_SLEEPTIME" bundleName="COMMON_ERROR_HANDLER_SF" pluginId="DMG_EG_MS_DefaultApplication"/>
+                    <propertyDescriptor groupName="Group.Basic" configurable="true" userDefined="true" describedAttribute="Property.QUEUE_BACKOUT_COUNT">
+                      <propertyName xmi:type="utility:TranslatableString" key="Property.QUEUE_BACKOUT_COUNT" bundleName="COMMON_ERROR_HANDLER_SF" pluginId="DMG_EG_MS_DefaultApplication"/>
+                    </propertyDescriptor>
+                  </propertyDescriptor>
+                </propertyDescriptor>
+              </propertyDescriptor>
+            </propertyDescriptor>
+          </propertyDescriptor>
+        </propertyDescriptor>
+      </propertyDescriptor>
+    </propertyOrganizer>
+    <attributeLinks promotedAttribute="Property.queueManagerName" overriddenNodes="FCMComposite_1_7">
+      <overriddenAttribute href="ComIbmMQOutput.msgnode#Property.queueManagerName"/>
+    </attributeLinks>
+    <attributeLinks promotedAttribute="Property.queueName" overriddenNodes="FCMComposite_1_7">
+      <overriddenAttribute href="ComIbmMQOutput.msgnode#Property.queueName"/>
+    </attributeLinks>
+    <attributeLinks promotedAttribute="Property.persistenceMode" overriddenNodes="FCMComposite_1_7">
+      <overriddenAttribute href="ComIbmMQOutput.msgnode#Property.persistenceMode"/>
+    </attributeLinks>
+    <attributeLinks promotedAttribute="Property.QueueManager" overriddenNodes="FCMComposite_1_9">
+      <overriddenAttribute href="ComIbmMQOutput.msgnode#Property.queueManagerName"/>
+    </attributeLinks>
+    <attributeLinks promotedAttribute="Property.QueueName" overriddenNodes="FCMComposite_1_9">
+      <overriddenAttribute href="ComIbmMQOutput.msgnode#Property.queueName"/>
+    </attributeLinks>
+    <attributeLinks promotedAttribute="Property.PersistenceMode" overriddenNodes="FCMComposite_1_9">
+      <overriddenAttribute href="ComIbmMQOutput.msgnode#Property.persistenceMode"/>
+    </attributeLinks>
+    <stickyBoard/>
+  </eClassifiers>
+  <eClassifiers xmi:type="ecore:EEnum">
+    <eLiterals xmi:id="persistenceMode.automatic" name="automatic"/>
+    <eLiterals xmi:id="persistenceMode.yes" name="yes" value="1"/>
+    <eLiterals xmi:id="persistenceMode.no" name="no" value="2"/>
+    <eLiterals xmi:id="persistenceMode.asQdef" name="asQdef" value="3"/>
+  </eClassifiers>
+  <eClassifiers xmi:type="ecore:EEnum">
+    <eLiterals xmi:id="PersistenceMode.automatic" name="automatic"/>
+    <eLiterals xmi:id="PersistenceMode.yes" name="yes" value="1"/>
+    <eLiterals xmi:id="PersistenceMode.no" name="no" value="2"/>
+    <eLiterals xmi:id="PersistenceMode.asQdef" name="asQdef" value="3"/>
+  </eClassifiers>
+</ecore:EPackage>

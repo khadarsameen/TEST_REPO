@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ecore:EPackage xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:COMMON_ERROR_HANDLER_SF.msgflow="COMMON_ERROR_HANDLER_SF.msgflow" xmlns:ComIbmCompute.msgnode="ComIbmCompute.msgnode" xmlns:ComIbmMQInput.msgnode="ComIbmMQInput.msgnode" xmlns:ComIbmMQOutput.msgnode="ComIbmMQOutput.msgnode" xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore" xmlns:eflow="http://www.ibm.com/wbi/2005/eflow" xmlns:utility="http://www.ibm.com/wbi/2005/eflow_utility" nsURI="MSXJCM_WCO236_MF.msgflow" nsPrefix="MSXJCM_WCO236_MF.msgflow">
+  <eClassifiers xmi:type="eflow:FCMComposite" name="FCMComposite_1">
+    <eSuperTypes href="http://www.ibm.com/wbi/2005/eflow#//FCMBlock"/>
+    <translation xmi:type="utility:TranslatableString" key="MSXJCM_WCO236_MF" bundleName="MSXJCM_WCO236_MF" pluginId="ICS2_ACS_JCM_WCO236"/>
+    <colorGraphic16 xmi:type="utility:GIFFileGraphic" resourceName="platform:/plugin/ICS2_ACS_JCM_WCO236/icons/full/obj16/MSXJCM_WCO236_MF.gif"/>
+    <colorGraphic32 xmi:type="utility:GIFFileGraphic" resourceName="platform:/plugin/ICS2_ACS_JCM_WCO236/icons/full/obj30/MSXJCM_WCO236_MF.gif"/>
+    <composition>
+      <nodes xmi:type="ComIbmMQInput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_2" location="-8,190" queueName="DMGMSXJCMWCO236MSG" messageDomainProperty="JSON" allMsgsAvailable="true">
+        <translation xmi:type="utility:ConstantString" string="DMGMSXJCMWCO236MSG"/>
+      </nodes>
+      <nodes xmi:type="ComIbmMQOutput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_3" location="755,364" queueName="AMGCOMMONINFOMSG">
+        <translation xmi:type="utility:ConstantString" string="AMGCOMMONINFOMSG"/>
+      </nodes>
+      <nodes xmi:type="ComIbmMQOutput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_4" location="1117,195" destinationMode="list" segmentationAllowed="true">
+        <translation xmi:type="utility:ConstantString" string="DESTINATIONLIST"/>
+      </nodes>
+      <nodes xmi:type="ComIbmMQOutput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_6" location="941,21" destinationMode="list">
+        <translation xmi:type="utility:ConstantString" string="OUTPUTMSG_QUEUE"/>
+      </nodes>
+      <nodes xmi:type="COMMON_ERROR_HANDLER_SF.msgflow:FCMComposite_1" xmi:id="FCMComposite_1_7" location="192,191" queueName="AMGCOMMONERRORMSG" QueueName="AMGCOMMONERRORLOG">
+        <translation xmi:type="utility:ConstantString" string="COMMON_ERROR_HANDLER_SF"/>
+      </nodes>
+      <nodes xmi:type="ComIbmMQInput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_8" location="137,367" queueName="DMGMSXJCMWCO236MSGREFRESH" transactionMode="automatic">
+        <translation xmi:type="utility:ConstantString" string="DMGMSXJCMWCO236MSGREFRESH"/>
+      </nodes>
+      <nodes xmi:type="ComIbmMQOutput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_9" location="618,29" destinationMode="list">
+        <translation xmi:type="utility:ConstantString" string="INPUTMSG_QUEUE"/>
+      </nodes>
+      <nodes xmi:type="ComIbmCompute.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_11" location="419,191" dataSource="AMGREFDB" computeExpression="esql://routine/#MSXJCM_WCO236_MF_AUDIT_IN.Main" computeMode="destinationAndMessage">
+        <translation xmi:type="utility:ConstantString" string="AUDIT_IN"/>
+      </nodes>
+      <nodes xmi:type="ComIbmCompute.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_12" location="484,28" dataSource="AMGREFDB" computeExpression="esql://routine/#MSXJCM_WCO236_MF_INPUTMSGLOG.Main" computeMode="destinationAndMessage">
+        <translation xmi:type="utility:ConstantString" string="INPUTMSGLOG"/>
+      </nodes>
+      <nodes xmi:type="ComIbmCompute.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_14" location="616,363" dataSource="AMGREFDB" computeExpression="esql://routine/#MSXJCM_WCO236_MF_DB_REFRESH.Main" computeMode="destinationAndMessage">
+        <translation xmi:type="utility:ConstantString" string="DB_REFRESH"/>
+      </nodes>
+      <nodes xmi:type="ComIbmMQOutput.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_23" location="481,110" destinationMode="list" segmentationAllowed="true">
+        <translation xmi:type="utility:ConstantString" string="DMGCOMMONAUDITIN"/>
+      </nodes>
+      <nodes xmi:type="ComIbmCompute.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_26" location="889,194" dataSource="AMGREFDB" computeExpression="esql://routine/#MSXJCM_WCO236_MF_ADUIT_OUT.Main" computeMode="destinationAndMessage">
+        <translation xmi:type="utility:ConstantString" string="ADUIT_OUT"/>
+      </nodes>
+      <nodes xmi:type="ComIbmCompute.msgnode:FCMComposite_1" xmi:id="FCMComposite_1_1" location="621,192" dataSource="AMGREFDB" computeExpression="esql://routine/#MSXJCM_WCO236_MF_ROUTING.Main" computeMode="destinationAndMessage">
+        <translation xmi:type="utility:ConstantString" string="ROUTE_TRANSFORM"/>
+      </nodes>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_1" targetNode="FCMComposite_1_7" sourceNode="FCMComposite_1_2" sourceTerminalName="OutTerminal.failure" targetTerminalName="InTerminal.Failure"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_2" targetNode="FCMComposite_1_7" sourceNode="FCMComposite_1_2" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.MainlineIn"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_3" targetNode="FCMComposite_1_7" sourceNode="FCMComposite_1_2" sourceTerminalName="OutTerminal.catch" targetTerminalName="InTerminal.Catch"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_4" targetNode="FCMComposite_1_11" sourceNode="FCMComposite_1_7" sourceTerminalName="OutTerminal.MainlineOut" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_9" targetNode="FCMComposite_1_12" sourceNode="FCMComposite_1_11" sourceTerminalName="OutTerminal.out2" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_10" targetNode="FCMComposite_1_9" sourceNode="FCMComposite_1_12" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_11" targetNode="FCMComposite_1_14" sourceNode="FCMComposite_1_8" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_12" targetNode="FCMComposite_1_3" sourceNode="FCMComposite_1_14" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_22" targetNode="FCMComposite_1_23" sourceNode="FCMComposite_1_11" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_32" targetNode="FCMComposite_1_4" sourceNode="FCMComposite_1_26" sourceTerminalName="OutTerminal.out1" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_19" targetNode="FCMComposite_1_6" sourceNode="FCMComposite_1_26" sourceTerminalName="OutTerminal.out2" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_7" targetNode="FCMComposite_1_1" sourceNode="FCMComposite_1_23" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_13" targetNode="FCMComposite_1_1" sourceNode="FCMComposite_1_11" sourceTerminalName="OutTerminal.out1" targetTerminalName="InTerminal.in"/>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_6" targetNode="FCMComposite_1_4" sourceNode="FCMComposite_1_26" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in">
+        <bendPoints>131,-46,-118,-47</bendPoints>
+      </connections>
+      <connections xmi:type="eflow:FCMConnection" xmi:id="FCMConnection_5" targetNode="FCMComposite_1_26" sourceNode="FCMComposite_1_1" sourceTerminalName="OutTerminal.out" targetTerminalName="InTerminal.in"/>
+    </composition>
+    <propertyOrganizer/>
+    <stickyBoard/>
+  </eClassifiers>
+</ecore:EPackage>

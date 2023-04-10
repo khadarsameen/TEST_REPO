@@ -1,0 +1,1348 @@
+DECLARE rowMSXJCM_WCO236_MFlog SHARED ROW;
+DECLARE rowRouteInfoMSXJCM_WCO236_MF SHARED ROW;
+DECLARE rowFilterInfoMSXJCM_WCO236_MF SHARED ROW;
+DECLARE rowConfigMSXJCM_WCO236_MF SHARED ROW;
+/**********************************************************************
+* Node Name: MSXJCM_WCO236_MF *
+* Module Name: MSXJCM_WCO236_MF_AUDIT_IN *
+* Description: This module will validate the audit level. If *
+* level is 1,route the message to Audit queue. *
+* Version Date Author Description *
+* =============== =========== =========== ============================*
+* 1 29-11-2022 Krishnama Naidu Initial *
+**********************************************************************/
+CREATE COMPUTE MODULE MSXJCM_WCO236_MF_AUDIT_IN
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- CALL CopyMessageHeaders();
+		CALL CopyEntireMessage();
+		DECLARE rowTmpFilter ROW;
+
+		IF rowMSXJCM_WCO236_MFlog.valid IS NULL THEN
+			AUDIT: BEGIN
+				ATOMIC
+				SET rowMSXJCM_WCO236_MFlog.LogLevel = THE
+				(
+				SELECT ITEM S.AUDIT_LEVEL
+				FROM Database.MSGFLOWS_AUDIT_CONTROL as S
+				WHERE S.MSGFLOWS = SQL.MessageFlowLabel
+				); 
+
+				SET rowMSXJCM_WCO236_MFlog.MsgLogLevel = THE
+				(
+				SELECT S.AUDIT_MSG_LEVEL, S.AUDIT_IN_MSG_QUEUE, S.AUDIT_OUT_MSG_QUEUE, S.AUDIT_IN_QUEUE, S.AUDIT_OUT_QUEUE
+				FROM Database.MSGFLOWS_AUDIT_CONTROL as S
+				WHERE S.MSGFLOWS = SQL.MessageFlowLabel
+				);
+				SET rowMSXJCM_WCO236_MFlog.valid = True;
+			END;
+		END IF;
+
+		IF rowRouteInfoMSXJCM_WCO236_MF.valid is NULL THEN
+			ROUTING: BEGIN
+				ATOMIC
+				SET rowRouteInfoMSXJCM_WCO236_MF.DestinationData[] =
+				(
+				SELECT S.QUEUE_NAME, S.MVMT_ORI_SRVA, S.MVMT_ORI_CTRY, S.MVMT_ORI_REGION, S.MVMT_ORI_FACILITY, S.MVMT_DST_SRVA, S.MVMT_DST_CTRY, S.MVMT_DST_REGION, S.MVMT_DST_FACILITY, S.ORI_APP, S.MSG_TYPE, 
+				S.ORI_COUNTRY_KEY, S.DST_COUNTRY_KEY, S.DST_APP, S.FILTER_NAME
+				FROM Database.ROUTE_TABLE_EX AS S
+				WHERE TRIM(S.MSGFLOW) = SQL.MessageFlowLabel 
+				);
+				
+				SET rowRouteInfoMSXJCM_WCO236_MF.SvcFeatureMapping[] =
+				(
+				SELECT S.FROM_VAL, S.TO_VAL
+				FROM Database.DATAMAPPING_TABLE AS S
+				WHERE TRIM(S.TYP) = 'ICS2_SVCFEATURE'
+				);
+				SET rowRouteInfoMSXJCM_WCO236_MF.valid = true;
+			END;
+		END IF;
+
+		IF rowConfigMSXJCM_WCO236_MF.valid IS NULL THEN
+			ROUTING: BEGIN
+				ATOMIC
+				DECLARE rowTmp, rowCache ROW;
+				SET rowTmp.PRODUCT_CODE[]=PASSTHRU('SELECT D.TYP,D.VALUE FROM DATASET_TABLE D WHERE D.TYP IN (SELECT DISTINCT(SS.PRODUCT_CODE) AS PRODUCT_CODE FROM ROUTE_TABLE_EX SS WHERE SS.PRODUCT_CODE <> TRIM(?) AND SS.MSGFLOW = TRIM(?))' VALUES ('*ALL*',SQL.MessageFlowLabel));
+
+				FOR cacheLine AS rowTmp.PRODUCT_CODE[] DO
+
+					CREATE LASTCHILD OF rowCache.PRODUCT_CODE.{COALESCE(cacheLine.TYP,'*ALL*')} NAME COALESCE(cacheLine.VALUE,'*ALL*') VALUE COALESCE(cacheLine.VALUE,'*ALL*');
+
+				END FOR;
+
+				SET rowTmp.CountryConfig[] =
+				(
+				SELECT D.FROM_VAL, D.TO_VAL, D.FROM_VAL2, D.TYP
+				FROM Database.EVT_DATAMAPPING_TABLE as D
+				WHERE D.MSGFLOW = SQL.MessageFlowLabel
+				);
+
+				FOR cacheLine AS rowTmp.CountryConfig[] DO
+					CREATE LASTCHILD OF rowCache.{cacheLine.TYP} NAME cacheLine.FROM_VAL VALUE cacheLine.FROM_VAL;
+				END FOR;
+
+				SET rowConfigMSXJCM_WCO236_MF = rowCache;
+				SET rowConfigMSXJCM_WCO236_MF.valid = true;
+			END;
+		END IF;
+
+		IF rowFilterInfoMSXJCM_WCO236_MF.valid IS NULL THEN
+			ROUTING: BEGIN
+				ATOMIC
+				DECLARE rowTmpFilter, rowTmp, rowCache ROW;
+				SET rowTmpFilter.FilterData[] =
+				(
+				SELECT S.FILTER_TYPE, S.FILTER_VALUE, S.FILTER_NAME
+				FROM Database.FILTER_TABLE_EX AS S
+				WHERE TRIM(S.MSGFLOW) = SQL.MessageFlowLabel
+				);
+
+
+				SET rowTmpFilter.FILTER_NAME[]=PASSTHRU('SELECT DISTINCT(SS.FILTER_NAME) AS FILTER_NAME FROM FILTER_TABLE_EX SS WHERE SS.MSGFLOW = TRIM(?)' VALUES (SQL.MessageFlowLabel));
+				DECLARE intCur INTEGER 1;
+				DECLARE intAct INTEGER CARDINALITY(rowTmpFilter.FILTER_NAME[]);
+
+				FOR FILTER_NAM AS rowTmpFilter.FILTER_NAME[] DO
+
+					SET rowTmpFilter.Filter_Data[intCur].FILTER_NAME = COALESCE(TRIM(FILTER_NAM.FILTER_NAME),'');
+
+					SET rowTmpFilter.Filter_Data[intCur].FILTER_TYPE[] =PASSTHRU('SELECT DISTINCT(SS.FILTER_TYPE) AS FILTER_TYPE FROM FILTER_TABLE_EX SS WHERE SS.MSGFLOW = TRIM(?) AND SS.FILTER_NAME=TRIM(?)' VALUES (SQL.MessageFlowLabel,FILTER_NAM.FILTER_NAME));
+
+
+					FOR FILTER_TYP AS rowTmpFilter.Filter_Data[intCur].FILTER_TYPE[] DO
+
+						SET rowTmp.FILTER_VALUE[]=SELECT R.FILTER_VALUE FROM rowTmpFilter.FilterData[] AS R WHERE R.FILTER_NAME=FILTER_NAM.FILTER_NAME AND R.FILTER_TYPE=FILTER_TYP.FILTER_TYPE;
+						FOR FILTER_VAL AS rowTmp.FILTER_VALUE[] DO
+							CREATE LASTCHILD OF rowCache.{FILTER_NAM.FILTER_NAME}.{FILTER_TYP.FILTER_TYPE} NAME FILTER_VAL.FILTER_VALUE VALUE FILTER_VAL.FILTER_VALUE;
+						END FOR;
+
+					END FOR;
+					SET intCur = intCur + 1;
+				END FOR;
+
+				SET rowFilterInfoMSXJCM_WCO236_MF = rowCache;
+				SET rowFilterInfoMSXJCM_WCO236_MF.FILTER.DATA[]=rowTmpFilter.Filter_Data[];
+
+				SET rowFilterInfoMSXJCM_WCO236_MF.valid=true;
+			END;
+		END IF;
+		DECLARE rInMSXJCM REFERENCE TO InputRoot.JSON.Data.MvmtMsg;
+		DECLARE rInBody 		REFERENCE TO rInMSXJCM.Bd;
+		DECLARE rInHdr 	REFERENCE TO rInMSXJCM.Hdr;
+		DECLARE rInMvmt 	REFERENCE TO rInBody.Mvmt.Item[1];
+		SET Environment.Variable ='';
+		DECLARE rEnvRef REFERENCE TO Environment.Variable;
+		DECLARE chrOriFcId, chrDestFcId CHARACTER;
+		DECLARE intPosition INTEGER;
+		SET chrOriFcId = COALESCE(TRIM(rInMvmt.MvmtKey."@OrgFcId"),'');
+		SET chrDestFcId = COALESCE(TRIM(rInMvmt.MvmtKey."@DstFcId"),'');
+		IF LENGTH(chrOriFcId) = 6 THEN
+            SET rEnvRef.MVMT_ORI_SRVA = SUBSTRING(chrOriFcId FROM 1 FOR 3);
+            SET rEnvRef.MVMT_ORI_FACILITY = SUBSTRING(chrOriFcId FROM 4 FOR 3);
+        ELSE
+            SET rEnvRef.MVMT_ORI_SRVA = SUBSTRING(chrOriFcId FROM 1 FOR 3);
+            SET rEnvRef.MVMT_ORI_FACILITY ='';
+        END IF;
+
+        IF LENGTH(chrDestFcId) = 6 THEN
+            SET rEnvRef.MVMT_DST_SRVA = SUBSTRING(chrDestFcId FROM 1 FOR 3);
+            SET rEnvRef.MVMT_DST_FACILITY = SUBSTRING(chrDestFcId FROM 4 FOR 3);
+        ELSE
+            SET rEnvRef.MVMT_DST_SRVA = SUBSTRING(chrDestFcId FROM 1 FOR 3);
+            SET rEnvRef.MVMT_DST_FACILITY ='';
+        END IF;
+		SET rEnvRef.MSG_TYPE = COALESCE(THE (SELECT ITEM A.Val.Item[1]
+											FROM rInBody.GenReq.Item[1].GenrcRqCritr.Item[] AS A
+											WHERE TRIM(A."@TyCd") = 'MsgFmt'),'');
+		SET rEnvRef.ORI_APP = COALESCE(THE (SELECT ITEM A.Val.Item[1]
+											FROM rInBody.GenReq.Item[1].GenrcRqCritr.Item[] AS A
+											WHERE TRIM(A."@TyCd") = 'OrgAppCd'),'');
+		SET rEnvRef.DST_APP = COALESCE(THE (SELECT ITEM A.Val.Item[1]
+											FROM rInBody.GenReq.Item[1].GenrcRqCritr.Item[] AS A
+											WHERE TRIM(A."@TyCd") = 'DstAppCd'),'');
+		SET intPosition = POSITION('@' in rEnvRef.DST_APP);
+		IF intPosition > 0 THEN
+			SET rEnvRef.DST_APP = SUBSTRING(rEnvRef.DST_APP BEFORE '@');
+		END IF;
+		
+		SET intPosition = POSITION('@' in rEnvRef.ORI_APP);
+		IF intPosition > 0 THEN
+			SET rEnvRef.ORI_APP = SUBSTRING(rEnvRef.ORI_APP BEFORE '@');
+		END IF;		
+				
+		SET rEnvRef.Routing.Data[] =
+		(
+		SELECT SA.COUNTRY AS COUNTRY, SA.REGION AS REGION, SA.SERVICE_AREA AS SERVICE_AREA
+		FROM Database.SERVICE_AREA AS SA WHERE SA.SERVICE_AREA IN (rEnvRef.MVMT_ORI_SRVA,rEnvRef.MVMT_DST_SRVA)
+		);
+	
+		SET rEnvRef.MvmtOrigin.DATA[] =(SELECT TRIM(SA.COUNTRY) AS COUNTRY, TRIM(SA.REGION) AS REGION
+		FROM rEnvRef.Routing.Data[] AS SA WHERE TRIM(SA.SERVICE_AREA) = rEnvRef.MVMT_ORI_SRVA);
+	
+		SET rEnvRef.MvmtDestination.DATA[] = (SELECT TRIM(SA.COUNTRY) AS COUNTRY, TRIM(SA.REGION) AS REGION
+		FROM rEnvRef.Routing.Data[] AS SA WHERE TRIM(SA.SERVICE_AREA) = rEnvRef.MVMT_DST_SRVA);		
+
+		SET Environment.FLOW_START_TIME = CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'yyyy-MM-dd HH:mm:ss.SSSSSS');
+
+		IF rowMSXJCM_WCO236_MFlog.MsgLogLevel.AUDIT_MSG_LEVEL = 1 THEN
+			PROPAGATE TO TERMINAL 2 DELETE NONE;
+		END IF;
+
+		IF rowMSXJCM_WCO236_MFlog.LogLevel =1 THEN
+			SET OutputLocalEnvironment.Destination.MQ.DestinationData[1].queueName = COALESCE(TRIM(rowMSXJCM_WCO236_MFlog.MsgLogLevel.AUDIT_IN_QUEUE),'DMGCOMMONAUDITIN');
+			PROPAGATE TO TERMINAL 0;
+		ELSE
+			PROPAGATE TO TERMINAL 1;
+		END IF;
+
+		RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+/**********************************************************************
+* Node Name: MSXJCM_WCO236_MF *
+* Module Name: MSXJCM_WCO236_MF_INPUTMSGLOG *
+* Description: This module will Log the Input message *
+* details to identify the message. *
+* Version Date Author Description *
+* =============== =========== =========== ============================*
+* 1 29-11-2022 Krishnama Naidu Initial *
+**********************************************************************/
+CREATE COMPUTE MODULE MSXJCM_WCO236_MF_INPUTMSGLOG
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		CALL CopyMessageHeaders();
+		SET OutputRoot.Properties.MessageFormat = 'XML';
+		SET OutputRoot.Properties.MessageSet = '';
+		SET OutputRoot.Properties.MessageType = '';
+		DECLARE rEnvRef REFERENCE TO Environment.Variable;
+		SET OutputRoot.XML.MSG = '';
+		SET OutputRoot.XML.MSG.(XML.Attribute)MsgId = InputRoot.MQMD.MsgId;
+		SET OutputRoot.XML.MSG.(XML.Attribute)MsgFlow = COALESCE(TRIM(SQL.MessageFlowLabel),'');
+		SET OutputRoot.XML.MSG.(XML.Attribute)ProcessDtm = CURRENT_TIMESTAMP;
+		
+		SET OutputRoot.XML.MSG.AddInf[1].Nm = 'MvmtNo';
+		SET OutputRoot.XML.MSG.AddInf[1].Val = COALESCE(InputRoot.JSON.Data.MvmtMsg.Bd.Mvmt.Item[1].MvmtKey."@MvmtNo",'');
+		SET Environment.Variable.MvmtNo  = COALESCE(InputRoot.JSON.Data.MvmtMsg.Bd.Mvmt.Item[1].MvmtKey."@MvmtNo",'');
+		SET OutputRoot.XML.MSG.AddInf[2].Nm = 'ORI_APP';
+		SET OutputRoot.XML.MSG.AddInf[2].Val = COALESCE(rEnvRef.ORI_APP, '');
+
+		SET OutputRoot.XML.MSG.AddInf[3].Nm  = 'MSG_TYPE';
+		SET OutputRoot.XML.MSG.AddInf[3].Val = COALESCE(rEnvRef.MSG_TYPE, '');
+		SET OutputRoot.XML.MSG.AddInf[4].Nm  = 'ORI_CTRY';
+		SET OutputRoot.XML.MSG.AddInf[4].Val = COALESCE(rEnvRef.MvmtOrigin.DATA.COUNTRY, '');
+
+		SET OutputLocalEnvironment.Destination.MQ.DestinationData[1].queueName = COALESCE(TRIM(rowMSXJCM_WCO236_MFlog.MsgLogLevel.AUDIT_IN_MSG_QUEUE),'DMGINPUTMSGLOG');
+
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+/**********************************************************************
+* Node Name: MSXJCM_WCO236_MF *
+* Module Name: MSXJCM_WCO236_MF_ROUTING *
+* Description: This module will route the  *
+* input message to various client based on the routing rules. *
+* Version Date Author Description *
+* =============== =========== =========== ============================*
+* 1 29-11-2022 Krishnama Naidu Initial *
+**********************************************************************/
+
+CREATE COMPUTE MODULE MSXJCM_WCO236_MF_ROUTING
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		SET Environment.MSG_FLOW_NAME = SQL.MessageFlowLabel;
+
+		CALL prcCreateRouteList();
+		CALL fncRemoveDuplicateQueuesAndInfo(OutputLocalEnvironment.Destination.MQ);
+
+		IF CARDINALITY(OutputLocalEnvironment.Destination.MQ.DestinationData[]) > 0 THEN
+			CALL CopyMessageHeaders();
+			CALL PrcCreateWCO236OutputMessage();
+			RETURN TRUE;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	END;
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+	CREATE PROCEDURE prcCreateRouteList()
+	BEGIN
+		DECLARE intTmpValJ, intTmpValI, iRouteCount,intRowCount INTEGER;
+		DECLARE rowDestination ROW;
+		DECLARE boolFilter BOOLEAN;
+		DECLARE rowOptimizeMF ROW;
+		DECLARE rowTmp ROW;
+		DECLARE rEnvRef REFERENCE TO Environment.Variable;
+		SET rowOptimizeMF.DestinationData[] = ( SELECT * FROM rowRouteInfoMSXJCM_WCO236_MF.DestinationData[] AS R WHERE
+														((R.MVMT_ORI_CTRY=rEnvRef.MvmtOrigin.DATA.COUNTRY) OR COALESCE(R.MVMT_ORI_CTRY,'*ALL*')='*ALL*')
+														AND ((R.MVMT_DST_CTRY=rEnvRef.MvmtDestination.DATA.COUNTRY) OR COALESCE(R.MVMT_DST_CTRY,'*ALL*')='*ALL*')
+														AND ((R.ORI_APP=rEnvRef.ORI_APP) OR COALESCE(R.ORI_APP,'*ALL*')='*ALL*')
+														AND ((R.DST_APP=rEnvRef.DST_APP) OR COALESCE(R.DST_APP,'*ALL*')='*ALL*')
+														AND ((R.MSG_TYPE=rEnvRef.MSG_TYPE) OR COALESCE(R.MSG_TYPE,'*ALL*')='*ALL*')
+											   );
+		DECLARE rowTmpFilter ROW;
+		IF CARDINALITY(rowOptimizeMF.DestinationData[]) > 0 THEN
+			SET intRowCount = 1;
+			SET intTmpValI = 1;
+			SET intTmpValJ = CARDINALITY(rowOptimizeMF.DestinationData[]);
+	
+			PROCESS: WHILE intTmpValI <= intTmpValJ DO
+	
+				DECLARE refSubs REFERENCE TO rowOptimizeMF.DestinationData[intTmpValI];
+	
+				IF (TRIM(refSubs.MVMT_ORI_SRVA) = TRIM(rEnvRef.MVMT_ORI_SRVA) OR COALESCE(TRIM(refSubs.MVMT_ORI_SRVA),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.MVMT_ORI_CTRY) = TRIM(rEnvRef.MvmtOrigin.DATA.COUNTRY) OR COALESCE(TRIM(refSubs.MVMT_ORI_CTRY),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.MVMT_ORI_REGION) = TRIM(rEnvRef.MvmtOrigin.DATA.REGION) OR COALESCE(TRIM(refSubs.MVMT_ORI_REGION),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.MVMT_ORI_FACILITY) = TRIM(rEnvRef.MVMT_ORI_FACILITY) OR COALESCE(TRIM(refSubs.MVMT_ORI_FACILITY),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.MVMT_DST_SRVA) = TRIM(rEnvRef.MVMT_DST_SRVA) OR COALESCE(TRIM(refSubs.MVMT_DST_SRVA),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.MVMT_DST_CTRY) = TRIM(rEnvRef.MvmtDestination.DATA.COUNTRY) OR COALESCE(TRIM(refSubs.MVMT_DST_CTRY),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.MVMT_DST_REGION) = TRIM(rEnvRef.MvmtDestination.DATA.REGION) OR COALESCE(TRIM(refSubs.MVMT_DST_REGION),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.MVMT_DST_FACILITY) = TRIM(rEnvRef.MVMT_DST_FACILITY) OR COALESCE(TRIM(refSubs.MVMT_DST_FACILITY),'*ALL*') ='*ALL*')
+					AND (TRIM(refSubs.ORI_APP) = TRIM(rEnvRef.ORI_APP) OR COALESCE(TRIM(refSubs.ORI_APP),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.MSG_TYPE) = TRIM(rEnvRef.MSG_TYPE) OR COALESCE(TRIM(refSubs.MSG_TYPE),'*ALL*') = '*ALL*')
+					AND (TRIM(refSubs.DST_APP) = TRIM(rEnvRef.DST_APP) OR COALESCE(TRIM(refSubs.DST_APP),'*ALL*') = '*ALL*')
+					AND (fncCheckMvmtORICtryConfig(COALESCE(refSubs.ORI_COUNTRY_KEY,'')) OR COALESCE(TRIM(refSubs.ORI_COUNTRY_KEY),'*ALL*') = '*ALL*')
+					AND (fncCheckMvmtDstCtryConfig(COALESCE(refSubs.DST_COUNTRY_KEY,'')) OR COALESCE(TRIM(refSubs.DST_COUNTRY_KEY),'*ALL*') = '*ALL*') THEN
+	
+					SET boolFilter=FALSE;
+					IF COALESCE(TRIM(refSubs.FILTER_NAME),'*ALL*') <> '*ALL*' THEN
+						SET rowTmpFilter.FilterData[] = SELECT R.FILTER_TYPE[] FROM rowFilterInfoMSXJCM_WCO236_MF.FILTER.DATA[] AS R WHERE R.FILTER_NAME=refSubs.FILTER_NAME;
+						DECLARE refFilter REFERENCE TO rowTmpFilter.FilterData.FILTER_TYPE[1];
+						FILTER1:WHILE LASTMOVE(refFilter) DO
+						SET boolFilter=fncCommonCheckFilter(rowFilterInfoMSXJCM_WCO236_MF,refSubs.FILTER_NAME,refFilter.FILTER_TYPE,rEnvRef);
+							IF boolFilter THEN
+	
+								LEAVE FILTER1;
+							END IF;
+							MOVE refFilter NEXTSIBLING NAME 'FILTER_TYPE';
+						END WHILE;
+						IF boolFilter THEN
+							SET intTmpValI = intTmpValI + 1;
+							SET boolFilter=FALSE;
+							ITERATE PROCESS;
+						END IF;
+					END IF;
+	
+					SET OutputLocalEnvironment.Destination.MQ.DestinationData[intRowCount].queueName = refSubs.QUEUE_NAME;
+					SET intRowCount = intRowCount+1;
+				END IF;
+	
+				SET intTmpValI = intTmpValI + 1;
+	
+			END WHILE;
+	END IF;
+END;
+
+	CREATE FUNCTION fncCheckMvmtORICtryConfig(SUBSCRIBER_KEY CHAR) RETURNS BOOLEAN
+	BEGIN
+		IF COALESCE(Environment.Variable.MvmtOrigin.DATA.COUNTRY,'') <> '' THEN
+			IF rowConfigMSXJCM_WCO236_MF.{SUBSCRIBER_KEY}.{Environment.Variable.MvmtOrigin.DATA.COUNTRY} IS NULL THEN
+				RETURN FALSE;
+			ELSE
+				RETURN TRUE;
+			END IF;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	END;
+
+	CREATE FUNCTION fncCheckMvmtDSTCtryConfig(SUBSCRIBER_KEY CHAR) RETURNS BOOLEAN
+	BEGIN
+		IF COALESCE(Environment.Variable.MvmtDestination.DATA.COUNTRY,'') <> '' THEN
+			IF rowConfigMSXJCM_WCO236_MF.{SUBSCRIBER_KEY}.{Environment.Variable.MvmtDestination.DATA.COUNTRY} IS NULL THEN
+				RETURN FALSE;
+			ELSE
+				RETURN TRUE;
+			END IF;
+		ELSE
+			RETURN FALSE;
+		END IF;
+	END;
+	CREATE PROCEDURE PrcCreateWCO236OutputMessage()
+	BEGIN
+		--Input Reference Declaration
+		DECLARE rInMvmtRef REFERENCE TO InputRoot.JSON.Data.MvmtMsg;
+		DECLARE rInMvmtHdrRef REFERENCE TO rInMvmtRef.Hdr;
+		DECLARE rInMvmtBdRef REFERENCE TO rInMvmtRef.Bd;
+		DECLARE rInMvmtBdGrRef REFERENCE TO rInMvmtRef.Bd.GenReq.Item[1];
+		DECLARE rInBdMvmtRef REFERENCE TO rInMvmtRef.Bd.Mvmt.Item[1];
+		DECLARE rInMvmtDocRef REFERENCE TO rInMvmtRef.Bd.Mvmt.Item[1].Doc.Item[1];
+		-- Set the message headers
+		
+		SET OutputRoot.Properties.MessageFormat = 'XMLNSC';
+		SET OutputRoot.Properties.MessageSet = '';
+		SET OutputRoot.Properties.MessageType = '';
+		-- Set the XMLNSC message headers
+		CREATE LASTCHILD OF OutputRoot DOMAIN 'XMLNSC';
+		SET OutputRoot.XMLNSC.(XMLNSC.XmlDeclaration).(XMLNSC.Attribute)Version = '1.0';
+		SET OutputRoot.XMLNSC.(XMLNSC.XmlDeclaration).(XMLNSC.Attribute)Encoding = 'UTF-8';
+		SET OutputRoot.XMLNSC.CstmsInterface='';
+		DECLARE rOutRef REFERENCE TO OutputRoot.XMLNSC.CstmsInterface;
+		SET rOutRef.(XMLNSC.Attribute)"xmlns:xsi" = 'http://www.w3.org/2001/XMLSchema-instance';
+		SET rOutRef.(XMLNSC.Attribute)"xmlns:xsd" = 'http://www.w3.org/2001/XMLSchema';
+		--SET rOutRef.(XMLNSC.Attribute)"xmlns:msxsl" = 'urn:schemas-microsoft-com:xslt';
+		SET rOutRef.(XMLNSC.Attribute)"xmlns:schemaLocation" = 'http://www.dhl.com/CustomsInterface_v2_3.xsd DCE_CustomsInterface_WCO_V2_3_6.xsd';
+		--Convert MSXJCM to WCO236 Message
+		--Hdr
+		SET OutputRoot.XMLNSC.CstmsInterface='';
+		CREATE FIELD OutputRoot.XMLNSC.CstmsInterface.Hdr.MsgCtl;
+		DECLARE rOutCIMsgCtlHdrRef REFERENCE TO OutputRoot.XMLNSC.CstmsInterface.Hdr.MsgCtl;
+		SET rOutCIMsgCtlHdrRef.SchemaName 		= 'DCE Cstms Msg';
+		SET rOutCIMsgCtlHdrRef.SchemaVersion 	= '2.3.6';
+		SET rOutCIMsgCtlHdrRef.MsgRevision 		= '1.0.0';
+		IF COALESCE(rInMvmtHdrRef."@Dtm", '') <> '' AND COALESCE(rInMvmtHdrRef."@TmOff", '') <> '' AND LENGTH(rInMvmtHdrRef."@Dtm") >= 19 THEN
+			SET rOutCIMsgCtlHdrRef.MsgDate 			= SUBSTRING(rInMvmtHdrRef."@Dtm" FROM 1 FOR 10);
+			SET rOutCIMsgCtlHdrRef.MsgTime 			= SUBSTRING(rInMvmtHdrRef."@Dtm" FROM 12 FOR 8) || rInMvmtHdrRef."@TmOff";
+		END IF;	
+		SET rOutCIMsgCtlHdrRef.NoOfShps 		= '0';
+		 
+		CREATE FIELD OutputRoot.XMLNSC.CstmsInterface.Hdr.CstmsMsgDtls;
+		DECLARE rOutCICstmsHdrRef REFERENCE TO OutputRoot.XMLNSC.CstmsInterface.Hdr.CstmsMsgDtls;
+		SET rOutCICstmsHdrRef.MsgEntryNo 		= '00001'; 
+		SET rOutCICstmsHdrRef.CstmsTgtCtry 		= NULLIF(rInBdMvmtRef.DstDHLCtryCd, '');
+		DECLARE chrMsgTyp CHARACTER '';
+		SET rOutCICstmsHdrRef.CstmsTgtMsgType = 'WCO';
+		SET rOutCICstmsHdrRef.DCEMsgVersion   = '2.6';
+		SET rOutCICstmsHdrRef.Gateway 			= NULLIF(LEFT(rInBdMvmtRef.MvmtKey."@DstFcId",3), '');
+		SET rOutCICstmsHdrRef.Module 			= 'EEWPX_DMG';
+		CREATE FIELD OutputRoot.XMLNSC.CstmsInterface.Hdr.EDIMsgHDrDtls;
+		DECLARE rOutCIEDIHdrRef REFERENCE TO OutputRoot.XMLNSC.CstmsInterface.Hdr.EDIMsgHDrDtls;
+		SET rOutCIEDIHdrRef.UNB.ApplicationReference = 'MS_DMG';
+		IF COALESCE(rInMvmtHdrRef."@Dtm", '') <> '' AND COALESCE(rInMvmtHdrRef."@TmOff", '') <> '' AND LENGTH(rInMvmtHdrRef."@Dtm") >= 19 THEN
+			SET rOutCIEDIHdrRef.UNB.DateTimeOfPrep.DateOfPrep = SUBSTRING(rInMvmtHdrRef."@Dtm" FROM 1 FOR 10);
+			SET rOutCIEDIHdrRef.UNB.DateTimeOfPrep.TimeOfPrep = SUBSTRING(rInMvmtHdrRef."@Dtm" FROM 12 FOR 8) || NULLIF(rInMvmtHdrRef."@TmOff", '');
+		END IF;
+		CREATE FIELD OutputRoot.XMLNSC.CstmsInterface.Dtls.Entries.Entry.Mvmts.Mvmt;
+		DECLARE rOutEntryRef REFERENCE TO OutputRoot.XMLNSC.CstmsInterface.Dtls.Entries.Entry;
+		DECLARE rOutMvmtRef REFERENCE TO OutputRoot.XMLNSC.CstmsInterface.Dtls.Entries.Entry.Mvmts.Mvmt;
+	
+		SET rOutMvmtRef.MvmtNo = NULLIF(rInBdMvmtRef.MvmtKey."@MvmtNo", '');
+	
+		-------------------Mapping Movement Details -------------------------------------------
+		IF LENGTH(rInBdMvmtRef.SchDptDtm."$") >= 19 AND COALESCE(rInBdMvmtRef.SchDptDtm."@Off", '') <> '' THEN
+			SET rOutMvmtRef.DepartureDate = SUBSTRING(rInBdMvmtRef.SchDptDtm."$" FROM 1 FOR 10);
+			SET rOutMvmtRef.DepartureTime = SUBSTRING(rInBdMvmtRef.SchDptDtm."$" FROM 12 FOR 8) || NULLIF(rInBdMvmtRef.SchDptDtm."@Off", '');
+		END IF;
+		IF LENGTH(rInBdMvmtRef.SchArrDtm."$") >= 19 AND COALESCE(rInBdMvmtRef.SchArrDtm."@Off", '') <> '' THEN
+			SET rOutMvmtRef.ArrivalDate = SUBSTRING(rInBdMvmtRef.SchArrDtm."$" FROM 1 FOR 10);
+			SET rOutMvmtRef.ArrivalTime = SUBSTRING(rInBdMvmtRef.SchArrDtm."$" FROM 12 FOR 8) || NULLIF(rInBdMvmtRef.SchArrDtm."@Off", '');			
+		END IF;
+		SET rOutMvmtRef.PlaceOfLoadingCtryCd = NULLIF(rInBdMvmtRef.OrgDHLCtryCd, '');
+		SET rOutMvmtRef.PlaceOfLoadingCdSrva = NULLIF(LEFT(rInBdMvmtRef.MvmtKey."@OrgFcId",3), '');
+		SET rOutMvmtRef.PlaceOfLoadingCdFacility =  NULLIF(RIGHT(rInBdMvmtRef.MvmtKey."@OrgFcId",3), '');
+		SET rOutMvmtRef.PlaceOfDischargeCdSrva = NULLIF(LEFT(rInBdMvmtRef.MvmtKey."@DstFcId",3), '');
+		SET rOutMvmtRef.PlaceOfDischargeCdFacility = NULLIF(RIGHT(rInBdMvmtRef.MvmtKey."@DstFcId",3), '');
+		CREATE FIELD rOutMvmtRef.TDOCs;
+		DECLARE rOutTdocsRef REFERENCE TO rOutMvmtRef.TDOCs;		
+	
+		----Mapping Mawb details ----------------
+		DECLARE cntDc INTEGER 1;
+		DECLARE cntShpPcs INTEGER 0;
+		FOR rInMvmtDocRef AS rInBdMvmtRef.Doc.Item[] DO
+			DECLARE rOutTdocsTdocRef REFERENCE TO rOutTdocsRef.TDOC[cntDc];
+			CREATE LASTCHILD OF rOutTdocsRef AS rOutTdocsTdocRef NAME 'TDOC';
+			CALL mapTdocDet(rInMvmtDocRef,rInBdMvmtRef,rOutTdocsTdocRef);										   	
+			DECLARE cntHU INTEGER 1;
+			DECLARE cntPcs INTEGER 1;
+			DECLARE cntWgt DECIMAL 0.0;
+			FOR rInHuInMvmtRef AS rInBdMvmtRef.HuInMvmt.Item[] DO
+				DECLARE cntHUIn INTEGER 1;
+				CALL GenerateHU(cntHUIn,rInMvmtDocRef,rInBdMvmtRef,rInHuInMvmtRef,rOutTdocsTdocRef, cntShpPcs, cntWgt, cntPcs);
+				SET rOutTdocsTdocRef.EquipmentID = rInHuInMvmtRef.HUId;
+				SET cntHU = cntHU+1;
+			END FOR;
+			-- Counting Number of pieces
+			FOR rOutTdocsShpRef AS rOutTdocsTdocRef.Shps.Shp[] DO
+				DECLARE CntPcs ROW;
+				DECLARE Pcs CHARACTER;
+				DECLARE pp INTEGER CARDINALITY(Environment.PcsData.PcsInHU[]);
+				SET CntPcs.PCS[] = SELECT  A 
+					FROM Environment.PcsData.PcsInHU[] AS A
+					WHERE A.PcsShpKey = TRIM(rOutTdocsShpRef.HAWB);
+					SET Pcs = CAST(CAST ( CARDINALITY(CntPcs.PCS[]) AS INTEGER) AS CHARACTER);
+				IF CARDINALITY(CntPcs.PCS[]) > 0 THEN
+					SET rOutTdocsShpRef.ManifestedPieces = Pcs;
+					SET rOutTdocsShpRef.TotPackages = Pcs;
+				ELSE
+					SET rOutTdocsShpRef.TotPackages = 1;
+				END IF;
+			END FOR;
+			SET cntDc = cntDc + 1;
+		END FOR;
+		-- Removing the duplicate shipments information and counting shipments after removal of duplicates
+		DECLARE cntNoOfShps INTEGER 0;
+		DECLARE rOutShp REFERENCE TO OutputRoot.XMLNSC.CstmsInterface.Dtls.Entries.Entry.Mvmts.Mvmt.TDOCs;
+		FOR rInRemTdocs AS rOutShp.TDOC[] DO
+			CALL fncRemoveDuplicateShipmentInfo(rInRemTdocs.Shps);
+			SET cntNoOfShps = cntNoOfShps + CARDINALITY(rInRemTdocs.Shps.Shp[]);
+		END FOR;
+		SET rOutCIMsgCtlHdrRef.NoOfShps = cntNoOfShps;
+	END;
+	
+	CREATE PROCEDURE mapTdocDet(IN rInMvmtDocRef REFERENCE, IN rInBdMvmtRef REFERENCE, INOUT rOutTdocsTdocRef REFERENCE)
+	BEGIN
+		
+		SET rOutTdocsTdocRef.TDOCNo = NULLIF(TRIM(THE (SELECT ITEM A.Id
+											FROM rInMvmtDocRef AS A
+											WHERE TRIM(A.TyCd) = 'MWB')),'');
+		SET rOutTdocsTdocRef.EquipmentID = '';											
+		SET rOutTdocsTdocRef.TransportMode = NULLIF(rInBdMvmtRef.MdOfTrns."$", '');
+	
+	END;
+	CREATE PROCEDURE CheckRecursive(INOUT cntHU INTEGER,IN rInMvmtDocRef REFERENCE,  IN rInBdMvmtRef REFERENCE,IN rInHuInMvmtRef REFERENCE, INOUT rOutTdocsTdocRef REFERENCE, INOUT cntShpPcs INTEGER, INOUT cntWgt DECIMAL, INOUT cntPcs INTEGER)
+	 
+	BEGIN
+		CALL GenerateHUInHU(cntHU,rInMvmtDocRef,rInBdMvmtRef,rInHuInMvmtRef,rOutTdocsTdocRef, cntShpPcs, cntWgt, cntPcs);
+		FOR refInHuInHU AS rInHuInMvmtRef.HuInHU.Item[] DO
+			CALL CheckRecursive(cntHU,rInMvmtDocRef,rInBdMvmtRef,refInHuInHU,rOutTdocsTdocRef, cntShpPcs, cntWgt, cntPcs);
+			SET cntHU = cntHU +1;
+		END FOR;
+		
+	END;
+	CREATE PROCEDURE GenerateHUInHU(INOUT cntHU INTEGER,IN rInMvmtDocRef REFERENCE, IN rInBdMvmtRef REFERENCE, IN rInHuInMvmtRef REFERENCE, INOUT rOutTdocsTdocRef REFERENCE, INOUT cntShpPcs INTEGER, INOUT cntWgt DECIMAL, INOUT cntPcs INTEGER)
+	BEGIN
+		FOR rInHuInMvmtSibRef AS rInHuInMvmtRef.HuInHU.Item[] DO
+			FOR rInPcsInHURef AS rInHuInMvmtSibRef.PcsInHU.Item[] DO
+				IF COALESCE(rInPcsInHURef.ShpKey."$", '') <> '' THEN
+					SET Environment.PcsData.PcsInHU[cntPcs].PcsShpKey  = rInPcsInHURef.ShpKey."$";
+					SET cntPcs = cntPcs + 1;
+				END IF;
+			END FOR;
+			CALL mapShpInHu(cntHU, rInHuInMvmtSibRef, rOutTdocsTdocRef, cntWgt, cntShpPcs);		
+			SET cntHU = cntHU + 1;
+		END FOR;
+	END;	
+	CREATE PROCEDURE GenerateHU(INOUT cntHU INTEGER,IN rInMvmtDocRef REFERENCE, IN rInBdMvmtRef REFERENCE, IN rInHuInMvmtRef REFERENCE, INOUT rOutTdocsTdocRef REFERENCE, INOUT cntShpPcs INTEGER, INOUT cntWgt DECIMAL, INOUT cntPcs INTEGER)
+	BEGIN
+		IF (rOutTdocsTdocRef.TDOCNo = rInHuInMvmtRef.HUInDoc.Item[1].DocId) THEN
+			FOR rInPcsInHURef AS rInHuInMvmtRef.PcsInHU.Item[] DO
+				IF COALESCE(rInPcsInHURef.ShpKey."$", '') <> '' THEN
+					SET Environment.PcsData.PcsInHU[cntPcs].PcsShpKey  = rInPcsInHURef.ShpKey."$";
+					SET cntPcs = cntPcs + 1;
+				END IF;
+			END FOR;			
+			CALL mapShpInHu(cntHU, rInHuInMvmtRef, rOutTdocsTdocRef, cntWgt, cntShpPcs);
+			CALL CheckRecursive(cntHU,rInMvmtDocRef,rInBdMvmtRef, rInHuInMvmtRef, rOutTdocsTdocRef, cntShpPcs, cntWgt, cntPcs);	
+			SET cntHU = cntHU + 1;
+		END IF;
+			
+	END;
+	----------Mapping Shipment Details------------------------------------------
+	CREATE PROCEDURE mapShpInHu(INOUT cntHU INTEGER, IN rInHuInMvmtRef REFERENCE, INOUT rOutTdocsTdocRef REFERENCE, INOUT cntWgt DECIMAL, INOUT cntShpPcs INTEGER)
+	BEGIN
+		DECLARE cntShpHU, intLength INTEGER 1;
+		DECLARE chrGlSrvCd, chrICSC CHARACTER;
+		DECLARE rowGlSrvCd ROW;
+		FOR rInShpInHURef AS rInHuInMvmtRef.ShpInHU.Item[] DO
+			DECLARE rOutTdocsTdocShpRef REFERENCE TO rOutTdocsTdocRef.Shps.Shp[cntShpHU];
+			CREATE LASTCHILD OF rOutTdocsTdocRef.Shps AS rOutTdocsTdocShpRef NAME 'Shp';
+			
+			SET rOutTdocsTdocShpRef.PymtMode = NULLIF(rInShpInHURef.Chrg.Item[1].TyCd, '');
+			SET rOutTdocsTdocShpRef.SplitShpInd   =   NULLIF(rInHuInMvmtRef.SplShpInd, '');
+			SET rOutTdocsTdocShpRef.TxAndDty.CstmsVal = NULLIF(THE (SELECT ITEM CAST(A.Amt.Item[1]."$" AS DECIMAL(15,2))
+				FROM rInShpInHURef.MonAmt.Item[] AS A
+				WHERE TRIM(A."@TyCd") = 'SCUSV'),'');
+			SET rOutTdocsTdocShpRef.TxAndDty.CstmsValCrncyCd = NULLIF(THE (SELECT ITEM A.Amt.Item[1]."@CurCd"
+				FROM rInShpInHURef.MonAmt.Item[] AS A
+				WHERE TRIM(A."@TyCd") = 'SCUSV'),'');				
+			SET rOutTdocsTdocShpRef.ReasonForExpt = NULLIF(THE (SELECT ITEM A.CmrcInv.Ln.Item[1].ReaForTrCd
+																FROM rInShpInHURef.ShpDoc.Item[] AS A
+																WHERE TRIM(A.DocTyCd) = 'INV'),'');
+			SET rOutTdocsTdocShpRef.ManifestedPieces =  ''; 
+			SET rOutTdocsTdocShpRef.HAWB = NULLIF(rInShpInHURef.ShpKey."$", '');
+			SET rOutTdocsTdocShpRef.ShpOrgn = NULLIF(rInShpInHURef.OrgSrvACd, '');
+			SET rOutTdocsTdocShpRef.ShpDest = NULLIF(rInShpInHURef.DstSrvACd, '');
+			SET rOutTdocsTdocShpRef.GrossWgt = NULLIF(THE (SELECT ITEM CAST(A.Wgt."$" AS DECIMAL DEFAULT 0.0)
+				FROM rInShpInHURef.Meas.Item[] AS A
+				WHERE TRIM(A."@TyCd") = 'DEC'),'');
+			SET rOutTdocsTdocShpRef.Dim.DimUOM = COALESCE(THE(SELECT ITEM B.H."@Uom" FROM rInShpInHURef.Pcs.Item[] AS A, A.Meas.Item[] AS B WHERE TRIM(B."@TyCd") = 'DEC'),
+														  THE(SELECT ITEM B.L."@Uom" FROM rInShpInHURef.Pcs.Item[] AS A, A.Meas.Item[] AS B WHERE TRIM(B."@TyCd") = 'DEC'),
+														  THE(SELECT ITEM B.W."@Uom" FROM rInShpInHURef.Pcs.Item[] AS A, A.Meas.Item[] AS B WHERE TRIM(B."@TyCd") = 'DEC'),NULL);    
+			SET rOutTdocsTdocShpRef.ActWgt = NULLIF(THE (SELECT ITEM CAST(A.Wgt."$" AS DECIMAL DEFAULT 0.0)
+				FROM rInShpInHURef.Meas.Item[] AS A
+				WHERE TRIM(A."@TyCd") = 'ACT'),'');			
+			SET rOutTdocsTdocShpRef.Incoterms = NULLIF(THE (SELECT ITEM A.CmrcInv.IncTrmCd 
+				FROM rInShpInHURef.ShpDoc.Item[] AS A
+				WHERE TRIM(A.DocTyCd) = 'INV'),'');
+			SET rOutTdocsTdocShpRef.CargoDesc = NULLIF(THE(SELECT ITEM A."$"
+				FROM rInShpInHURef.Dsc.Item[] AS A
+				WHERE TRIM(A."@Cd") = 'CNT'),'');				
+			SET rOutTdocsTdocShpRef.LclLangCd = NULLIF(THE (SELECT ITEM A."@LngCd"
+				FROM rInShpInHURef.Dsc.Item[] AS A
+				WHERE TRIM(A."@Cd") = 'CNT'),'');				
+			SET rOutTdocsTdocShpRef.Dim.Lgth = NULLIF(THE (SELECT ITEM CAST(A.L."$" AS DECIMAL)
+				FROM rInShpInHURef.Meas.Item[] AS A
+				WHERE TRIM(A."@TyCd") = 'DEC'),'');
+			SET rOutTdocsTdocShpRef.Dim.Wdth = NULLIF(THE (SELECT ITEM CAST(A.W."$" AS DECIMAL)
+				FROM rInShpInHURef.Meas.Item[] AS A
+				WHERE TRIM(A."@TyCd") = 'DEC'),'');
+			SET rOutTdocsTdocShpRef.Dim.Hght = NULLIF(THE (SELECT ITEM CAST(A.H."$" AS DECIMAL)
+				FROM rInShpInHURef.Meas.Item[] AS A
+				WHERE TRIM(A."@TyCd") = 'DEC'),'');
+			SET rOutTdocsTdocShpRef.TotPackages =  ''; 
+			SET cntShpPcs = cntShpPcs + 1;								
+			FOR rInShpCustRef AS rInShpInHURef.Cust.Item[] DO
+				IF(rInShpCustRef.CustRolTyCd.Item[1] = 'RV') THEN
+					SET rOutTdocsTdocShpRef.ShpCnsgne.DutyAcct = NULLIF(THE (SELECT ITEM A.Chrg.Item[1].PayNtwAccNo 
+																			FROM rInShpInHURef.Srv.Item[] AS A
+																			WHERE TRIM(A.GlSrvCd."@GlProdSrvClssCd") = 'S' AND A.GlSrvCd."$" IN('DD', 'DY', 'DZ', 'DS', 'DU')), '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.VATNo = NULLIF(rInShpCustRef.CVatN, '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.CoName = NULLIF(rInShpCustRef.Addr.BsnPty.Orgn.Nm, '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.AddrLn1 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '1'), '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.AddrLn2 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '2'), '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.AddrLn3 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '3'), '');					
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.City = NULLIF(rInShpCustRef.Addr.ActPntSp.Lty.CtyNm, '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.PostalCd = NULLIF(rInShpCustRef.Addr.ActPntSp.Lty.Zip, '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.State = NULLIF(THE (SELECT ITEM A.Nm
+																									FROM rInShpCustRef.Addr.ActPntSp.Lty.CtryDiv.Item[] AS A
+																									WHERE TRIM(A.TyCd) = 'S'),'');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.CtryCd = NULLIF(rInShpCustRef.Addr.ActPntSp.CtryCd, '');
+					DECLARE cntTrader INTEGER 1;
+					FOR rInShpCustRRef AS rInShpInHURef.ShpDoc.Item[1].ShpCust.Item[] DO
+						IF rInShpCustRRef.CustRolTyCd.Item[1] = 'RV' THEN
+							FOR rInShpCustRgsRef AS rInShpCustRRef.Rgs.Item[] DO
+								SET rOutTdocsTdocShpRef.ShpCnsgne.TraderRef[cntTrader].TraderRefId = NULLIF(rInShpCustRgsRef.No, '');
+								SET rOutTdocsTdocShpRef.ShpCnsgne.TraderRef[cntTrader].TraderRefIssAgncyCtry = NULLIF(rInShpCustRgsRef.CtryCd, '');
+								SET rOutTdocsTdocShpRef.ShpCnsgne.TraderRef[cntTrader].TraderRefIssAgncyCd = NULLIF(rInShpCustRgsRef.TyCd, '');
+								SET cntTrader = cntTrader + 1;
+							END FOR;
+						END IF;
+					END FOR;
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.StreetName = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].ThrfrNm.Item[1]."$", '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.StreetNo = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].ThrfrNm.Item[1]."@Qf", '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.BuildingName = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].BldOrCnstr.Item[1]."@PrcTy", '');
+					SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCntctDtls.PreferredName = NULLIF(rInShpCustRef.Addr.BsnPty.Indv.Nm, '');
+					DECLARE devCnt INTEGER 1;
+						FOR rInCommDevRef AS rInShpCustRef.CommDev.Item[] DO
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'TEL' THEN
+								SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceType  = 'TEL';
+								SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'FAX' THEN
+								SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceType  = 'FAX';
+								SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'MOB' THEN
+								SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceType  = 'MOB';
+								SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'EML' THEN
+								SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceType  = 'EML';
+								SET rOutTdocsTdocShpRef.ShpCnsgne.CnsgneCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;	
+																								
+						END FOR;					
+				END IF;
+				IF(rInShpCustRef.CustRolTyCd.Item[1] = 'SP') THEN
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.DHLAcctNo = NULLIF(rInShpCustRef.NtwAccNo, '');
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.CoName = NULLIF(rInShpCustRef.Addr.BsnPty.Orgn.Nm, '');
+	
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.AddrLn1 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '1'), '');
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.AddrLn2 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '2'), '');
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.AddrLn3 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '3'), '');					
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.City = NULLIF(rInShpCustRef.Addr.ActPntSp.Lty.CtyNm, '');
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.PostalCd = NULLIF(rInShpCustRef.Addr.ActPntSp.Lty.Zip, '');
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.State = NULLIF(THE (SELECT ITEM A.Nm
+																									FROM rInShpCustRef.Addr.ActPntSp.Lty.CtryDiv.Item[] AS A
+																									WHERE TRIM(A.TyCd) = 'S'),'');
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.CtryCd = NULLIF(rInShpCustRef.Addr.ActPntSp.CtryCd, '');
+					DECLARE cntTrader INTEGER 1;
+					FOR rInShpCustRRef AS rInShpInHURef.ShpDoc.Item[1].ShpCust.Item[] DO
+						IF rInShpCustRRef.CustRolTyCd.Item[1] = 'SP' THEN
+							FOR rInShpCustRgsRef AS rInShpCustRRef.Rgs.Item[] DO
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.TraderRef[cntTrader].TraderRefId = NULLIF(rInShpCustRgsRef.No, '');
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.TraderRef[cntTrader].TraderRefIssAgncyCtry = NULLIF(rInShpCustRgsRef.CtryCd, '');
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.TraderRef[cntTrader].TraderRefIssAgncyCd = NULLIF(rInShpCustRgsRef.TyCd, '');
+								SET cntTrader = cntTrader + 1;
+							END FOR;
+						END IF;
+					END FOR;					
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.StreetName = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].ThrfrNm.Item[1]."$", '');
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.StreetNo = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].ThrfrNm.Item[1]."@Qf", '');
+					SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCntctDtls.PreferredName = NULLIF(rInShpCustRef.Addr.BsnPty.Indv.Nm, '');
+					DECLARE devCnt INTEGER 1;
+						FOR rInCommDevRef AS rInShpCustRef.CommDev.Item[] DO
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'TEL' THEN
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceType  = 'TEL';
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'FAX' THEN
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceType  = 'FAX';
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'MOB' THEN
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceType  = 'MOB';
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'EML' THEN
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceType  = 'EML';
+								SET rOutTdocsTdocShpRef.ShpCnsgnr.CnsgnrCoDtls.AddrEng.Cntct.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;	
+																								
+						END FOR;					
+				END IF;
+				IF(rInShpCustRef.CustRolTyCd.Item[1] = 'IP') THEN
+					SET rOutTdocsTdocShpRef.ShpImpter.DHLAcctNo = NULLIF(rInShpCustRef.NtwAccNo, '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.CoName = NULLIF(rInShpCustRef.Addr.BsnPty.Orgn.Nm, '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.AddrLn1 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '1'), '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.AddrLn2 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '2'), '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.AddrLn3 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '3'), '');					
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.City = NULLIF(rInShpCustRef.Addr.ActPntSp.Lty.CtyNm, '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.PostalCd = NULLIF(rInShpCustRef.Addr.ActPntSp.Lty.Zip, '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.State = NULLIF(THE (SELECT ITEM A.Nm
+																									FROM rInShpCustRef.Addr.ActPntSp.Lty.CtryDiv.Item[] AS A
+																									WHERE TRIM(A.TyCd) = 'S'),'');
+					DECLARE cntTrader INTEGER 1;
+					FOR rInShpCustRRef AS rInShpInHURef.ShpDoc.Item[1].ShpCust.Item[] DO
+						IF rInShpCustRRef.CustRolTyCd.Item[1] = 'IP' THEN
+							FOR rInShpCustRgsRef AS rInShpCustRRef.Rgs.Item[] DO
+								SET rOutTdocsTdocShpRef.ShpImpter.TraderRef[cntTrader].TraderRefId = NULLIF(rInShpCustRgsRef.No, '');
+								SET rOutTdocsTdocShpRef.ShpImpter.TraderRef[cntTrader].TraderRefIssAgncyCtry = NULLIF(rInShpCustRgsRef.CtryCd, '');
+								SET rOutTdocsTdocShpRef.ShpImpter.TraderRef[cntTrader].TraderRefIssAgncyCd = NULLIF(rInShpCustRgsRef.TyCd, '');
+								SET cntTrader = cntTrader + 1;
+							END FOR;
+						END IF;
+					END FOR;					
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.CtryCd = NULLIF(rInShpCustRef.Addr.ActPntSp.CtryCd, '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.StreetName = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].ThrfrNm.Item[1]."$", '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCoDtls.AddrEng.StreetNo = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].ThrfrNm.Item[1]."@Qf", '');
+					SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.PreferredName = NULLIF(rInShpCustRef.Addr.BsnPty.Indv.Nm, '');
+					DECLARE devCnt INTEGER 1;
+						FOR rInCommDevRef AS rInShpCustRef.CommDev.Item[] DO
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'TEL' THEN
+								SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.CntctDevices[devCnt].DeviceType  = 'TEL';
+								SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'FAX' THEN
+								SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.CntctDevices[devCnt].DeviceType  = 'FAX';
+								SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'MOB' THEN
+								SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.CntctDevices[devCnt].DeviceType  = 'MOB';
+								SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'EML' THEN
+								SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.CntctDevices[devCnt].DeviceType  = 'EML';
+								SET rOutTdocsTdocShpRef.ShpImpter.ImpterCntctDtls.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;	
+																								
+						END FOR;					
+				END IF;
+				IF(rInShpCustRef.CustRolTyCd.Item[1] = 'EP') THEN
+					SET rOutTdocsTdocShpRef.ShpExpter.DHLAcctNo = NULLIF(rInShpCustRef.NtwAccNo, '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.CoName = NULLIF(rInShpCustRef.Addr.BsnPty.Orgn.Nm, '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.AddrLn1 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '1'), '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.AddrLn2 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '2'), '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.AddrLn3 = NULLIF(THE (SELECT ITEM B."$" 
+																			FROM rInShpCustRef.Addr.FrmtAddr.Item[] AS A, A.PosCont.Item[] AS B
+																			WHERE TRIM(A."@FmtTyCd") = 'LINES' AND B."@Id" = '3'), '');					
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.City = NULLIF(rInShpCustRef.Addr.ActPntSp.Lty.CtyNm, '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.PostalCd = NULLIF(rInShpCustRef.Addr.ActPntSp.Lty.Zip, '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.State = NULLIF(THE (SELECT ITEM A.Nm
+																									FROM rInShpCustRef.Addr.ActPntSp.Lty.CtryDiv.Item[] AS A
+																									WHERE TRIM(A.TyCd) = 'S'),'');
+					DECLARE cntTrader INTEGER 1;
+					FOR rInShpCustRRef AS rInShpInHURef.ShpDoc.Item[1].ShpCust.Item[] DO
+						IF rInShpCustRRef.CustRolTyCd.Item[1] = 'EP' THEN
+							FOR rInShpCustRgsRef AS rInShpCustRRef.Rgs.Item[] DO
+								SET rOutTdocsTdocShpRef.ShpExpter.TraderRef[cntTrader].TraderRefId = NULLIF(rInShpCustRgsRef.No, '');
+								SET rOutTdocsTdocShpRef.ShpExpter.TraderRef[cntTrader].TraderRefIssAgncyCtry = NULLIF(rInShpCustRgsRef.CtryCd, '');
+								SET rOutTdocsTdocShpRef.ShpExpter.TraderRef[cntTrader].TraderRefIssAgncyCd = NULLIF(rInShpCustRgsRef.TyCd, '');
+								SET cntTrader = cntTrader + 1;
+							END FOR;
+						END IF;
+					END FOR;					
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.CtryCd = NULLIF(rInShpCustRef.Addr.ActPntSp.CtryCd, '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.StreetName = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].ThrfrNm.Item[1]."$", '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCoDtls.AddrEng.StreetNo = NULLIF(rInShpCustRef.Addr.ActPntSp.Loc.Item[1].ThrfrNm.Item[1]."@Qf", '');
+					SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.PreferredName = NULLIF(rInShpCustRef.Addr.BsnPty.Indv.Nm, '');
+					DECLARE devCnt INTEGER 1;
+						FOR rInCommDevRef AS rInShpCustRef.CommDev.Item[] DO
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'TEL' THEN
+								SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.CntctDevices[devCnt].DeviceType  = 'TEL';
+								SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'FAX' THEN
+								SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.CntctDevices[devCnt].DeviceType  = 'FAX';
+								SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'MOB' THEN
+								SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.CntctDevices[devCnt].DeviceType  = 'MOB';
+								SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;
+							IF rInShpCustRef.CommDev.Item[devCnt]."@TyCd" = 'EML' THEN
+								SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.CntctDevices[devCnt].DeviceType  = 'EML';
+								SET rOutTdocsTdocShpRef.ShpExpter.ExpterCntctDtls.CntctDevices[devCnt].DeviceDtls  = NULLIF(rInShpCustRef.CommDev.Item[devCnt]."$", '');
+							SET devCnt = devCnt + 1;
+							END IF;	
+																								
+						END FOR;					
+				END IF;
+				IF(rInShpCustRef.CustRolTyCd.Item[1] = 'PY') THEN
+					SET rOutTdocsTdocShpRef.ShpPayer.DHLAcctNo = NULLIF(rInShpCustRef.NtwAccNo, '');
+				END IF;
+			END FOR;
+			DECLARE cntFlex INTEGER 1;
+			DECLARE decVolWgt DECIMAL ;
+			DECLARE chrUom CHARACTER ;
+			SET decVolWgt = COALESCE(THE (SELECT ITEM CAST(A.VolWgt."$" AS DECIMAL)
+														FROM rInShpInHURef.Meas.Item[] AS A
+														WHERE A."@TyCd" = 'ACT'),'');
+			SET chrUom = COALESCE(THE (SELECT ITEM A.VolWgt."@Uom" 
+													FROM rInShpInHURef.Meas.Item[] AS A
+													WHERE A."@TyCd" = 'ACT'),'');
+			IF decVolWgt <> '' THEN
+				IF chrUom = 'LB' THEN
+					SET rOutTdocsTdocShpRef.FlexFields[cntFlex].Name_Eng = 'Actual Dimensional Weight';
+					SET rOutTdocsTdocShpRef.FlexFields[cntFlex].Val = decVolWgt * 0.45359237;
+					SET cntFlex = cntFlex + 1;
+				ELSE
+					SET rOutTdocsTdocShpRef.FlexFields[cntFlex].Name_Eng = 'Actual Dimensional Weight';
+					SET rOutTdocsTdocShpRef.FlexFields[cntFlex].Val = decVolWgt;
+					SET cntFlex = cntFlex + 1;
+				END IF;
+			END IF;	
+			
+			SET rOutTdocsTdocShpRef.Insurance = NULLIF(THE (SELECT ITEM CAST(R.Val."$"  AS DECIMAL)
+				FROM rInShpInHURef.Srv.Item[] AS P, P.DatElGrp.Item[] AS Q, Q.DatEl.Item[] AS R
+				WHERE TRIM(Q."@Cd") = 'InsVal' AND R.Cd = 'Amt'), '');	
+			SET rOutTdocsTdocShpRef.InsuranceCrncy = NULLIF(THE (SELECT ITEM R.Val."$"  
+				FROM rInShpInHURef.Srv.Item[] AS P, P.DatElGrp.Item[] AS Q, Q.DatEl.Item[] AS R
+				WHERE TRIM(Q."@Cd") = 'InsVal' AND R.Cd = 'CurCd'), '');
+			SET rOutTdocsTdocShpRef.SDPieces = NULLIF(CAST(rInShpInHURef.DclNPcs AS INTEGER), '');
+			DECLARE cntDoc INTEGER 1;
+			FOR rInShpDocRef AS rInShpInHURef.ShpDoc.Item[] DO
+				IF COALESCE(rInShpDocRef.DocId, '') <> '' THEN 
+					SET rOutTdocsTdocShpRef.AddDocInfo[cntDoc].DocType = NULLIF(rInShpDocRef.DocTyCd, '');
+					SET rOutTdocsTdocShpRef.AddDocInfo[cntDoc].DocRefNo = NULLIF(rInShpDocRef.DocId, '');
+					SET cntDoc = cntDoc + 1;
+				END IF;
+			END FOR;
+			SET rOutTdocsTdocShpRef.PUDate = NULLIF(LEFT(rInShpInHURef.PlnDtm."$",10), '');
+			IF TRIM(rInShpInHURef.GlProdSrvCd."@GlProdSrvClssCd") = 'P' THEN
+				SET rOutTdocsTdocShpRef.BillProdCd = NULLIF(rInShpInHURef.GlProdSrvCd."$", '');
+			END IF;
+			DECLARE rEnvRef REFERENCE TO Environment.Variable;
+			SET rEnvRef.Country.Data[] = (
+										SELECT SA.COUNTRY AS COUNTRY, SA.REGION AS REGION, SA.SERVICE_AREA AS SERVICE_AREA
+										FROM Database.SERVICE_AREA AS SA WHERE SA.SERVICE_AREA IN (rInShpInHURef.OrgSrvACd,rInShpInHURef.DstSrvACd)
+										);
+			SET rOutTdocsTdocShpRef.ShpCtryOrgn = 	THE(SELECT ITEM SA.COUNTRY
+					FROM rEnvRef.Country.Data[] AS SA WHERE SA.SERVICE_AREA IN (rInShpInHURef.OrgSrvACd));	
+		
+			SET rOutTdocsTdocShpRef.ShpCtryDest = THE(SELECT ITEM SA.COUNTRY
+					FROM rEnvRef.Country.Data[] AS SA WHERE SA.SERVICE_AREA IN (rInShpInHURef.DstSrvACd));
+			SET rOutTdocsTdocShpRef.PackagingType = NULLIF(THE (SELECT ITEM A.PkgTyCd 
+														FROM rInShpInHURef.Pcs.Item[] AS A
+														WHERE A.PkgTyCd <> ''),'');
+			SET rOutTdocsTdocShpRef.ProdContentCd = NULLIF(rInShpInHURef.PdCntnCd, '');
+			IF decVolWgt <> '' THEN
+				IF chrUom = 'LB' THEN
+					SET rOutTdocsTdocShpRef.Cube = decVolWgt * 0.45359237;
+				ELSE 
+					SET rOutTdocsTdocShpRef.Cube = decVolWgt;
+				END IF;
+			END IF;
+			
+			DECLARE chrSrvCd CHARACTER ;
+			
+			SET chrSrvCd = COALESCE(THE (SELECT ITEM A.GlSrvCd."$" 
+														FROM rInShpInHURef.Srv.Item[] AS A
+														WHERE A.GlSrvCd."@GlProdSrvClssCd" = 'S'),'');
+	
+			SET rOutTdocsTdocShpRef.DHLServiceCd    = NULLIF(THE(SELECT ITEM S.TO_VAL 
+																	FROM rowRouteInfoMSXJCM_WCO236_MF.SvcFeatureMapping[] AS S 
+					    											WHERE S.FROM_VAL=chrSrvCd), '');
+			DECLARE cntCustAtt INTEGER 1;											
+			DECLARE chrPmyTycd CHARACTER;
+			SET chrPmyTycd = THE (SELECT ITEM A.PMthTyCd 
+										 FROM rInShpInHURef.Cust.Item[] AS A 
+										 WHERE A.CustRolTyCd.Item[1] = 'PY');
+			IF COALESCE(chrPmyTycd,'') <> '' THEN
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'Billing Type';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrPmyTycd;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			FOR rInShpInHUHInsRef AS rInShpInHURef.ShpHIns.Item[] DO
+				IF COALESCE(rInShpInHUHInsRef.TyCd, '') <> '' THEN
+					SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'HAZMATInd';
+					SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = rInShpInHUHInsRef.TyCd;
+					SET cntCustAtt = cntCustAtt + 1;
+				END IF;
+			END FOR;
+			DECLARE cntShpRef INTEGER 1;
+			FOR rInShpHuShpRef AS rInShpInHURef.ShpRef.Item[] DO
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'Shipment Reference Type ' || CAST(cntShpRef AS CHAR);
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = NULLIF(rInShpHuShpRef."@TyCd", '');
+				SET cntCustAtt = cntCustAtt + 1;
+				SET cntShpRef = cntShpRef + 1;
+			END FOR;
+			SET cntShpRef = 1;
+			FOR rInShpHuShpRef AS rInShpInHURef.ShpRef.Item[] DO
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'Shipment Reference ' || CAST(cntShpRef AS CHAR);
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = NULLIF(rInShpHuShpRef.Ref, '');
+				SET cntCustAtt = cntCustAtt + 1;
+				SET cntShpRef = cntShpRef + 1;
+			END FOR;
+			IF COALESCE(rInShpInHURef.ShpDoc.Item[1].CmrcInv.IncTrmPlcNm, '') <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'IncTrmPlcNm';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = NULLIF(rInShpInHURef.ShpDoc.Item[1].CmrcInv.IncTrmPlcNm, '');
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			DECLARE chrClsCd CHARACTER;
+			--Receiver Class code
+			SET chrClsCd  =   COALESCE(THE (SELECT ITEM B.ClsCd  
+									FROM rInShpInHURef.Cust.Item[] AS A, A.Cls.Item[] AS B 
+									WHERE A.CustRolTyCd.Item[1] = 'RV' AND B.TyCd = 'TRDTY'), '');
+			IF chrClsCd <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'ShpCnsgneTrdTy';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrClsCd;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			--Shipper Class code
+			SET chrClsCd  =   COALESCE(THE (SELECT ITEM B.ClsCd  
+									FROM rInShpInHURef.Cust.Item[] AS A, A.Cls.Item[] AS B 
+									WHERE A.CustRolTyCd.Item[1] = 'SP' AND B.TyCd = 'TRDTY'), '');
+			IF chrClsCd <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'ShpCnsgnrTrdTy';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrClsCd;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			--ShpImpter Class code
+			SET chrClsCd  =   COALESCE(THE (SELECT ITEM B.ClsCd  
+									FROM rInShpInHURef.Cust.Item[] AS A, A.Cls.Item[] AS B 
+									WHERE A.CustRolTyCd.Item[1] = 'IP' AND B.TyCd = 'TRDTY'), '');
+			IF chrClsCd <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'ShpImpterTrdTy';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrClsCd;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			--ShpExpter Class code
+			SET chrClsCd  =   COALESCE(THE (SELECT ITEM B.ClsCd  
+									FROM rInShpInHURef.Cust.Item[] AS A, A.Cls.Item[] AS B 
+									WHERE A.CustRolTyCd.Item[1] = 'EP' AND B.TyCd = 'TRDTY'), '');
+			IF chrClsCd <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'ShpExpterTrdTy';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrClsCd;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;	
+															
+			DECLARE amtTinva, amtTcusv, amtMfchg DECIMAL;
+			DECLARE chrCurCd, chrMfchg, chrTinva CHARACTER;
+			SET  amtTinva = COALESCE(THE (SELECT ITEM CAST(A.Amt.Item[1]."$" AS DECIMAL(15,2))  
+													FROM rInShpInHURef.ShpDoc.Item[1].CmrcInv.MonAmt.Item[] AS A 
+													WHERE A."@TyCd" = 'TINVA'), '');
+			IF amtTinva <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'MonAmtTINVA';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = amtTinva;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			SET chrTinva = COALESCE(THE (SELECT ITEM A.Amt.Item[1]."@CurCd"   
+													FROM rInShpInHURef.ShpDoc.Item[1].CmrcInv.MonAmt.Item[] AS A 
+													WHERE A."@TyCd" = 'TINVA'), '');
+			IF chrTinva <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'MonAmtTINVACurCd';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrTinva;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;						
+			SET  amtTcusv = COALESCE(THE (SELECT ITEM CAST(A.Amt.Item[1]."$" AS DECIMAL(15,2))  
+													FROM rInShpInHURef.ShpDoc.Item[1].CmrcInv.MonAmt.Item[] AS A 
+													WHERE A."@TyCd" = 'TCUSV'), '');
+			IF amtTcusv <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'MonAmtTCUSV';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = amtTcusv;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			SET chrCurCd = COALESCE(THE (SELECT ITEM A.Amt.Item[1]."@CurCd"   
+													FROM rInShpInHURef.ShpDoc.Item[1].CmrcInv.MonAmt.Item[] AS A 
+													WHERE A."@TyCd" = 'TCUSV'), '');
+			IF chrCurCd <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'MonAmtTCUSVCurCd';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrCurCd;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			SET  amtMfchg = COALESCE(THE (SELECT ITEM CAST(A.Amt.Item[1]."$" AS DECIMAL(15,2))  
+													FROM rInShpInHURef.ShpDoc.Item[1].CmrcInv.MonAmt.Item[] AS A 
+													WHERE A."@TyCd" = 'MFCHG'), '');
+			IF amtMfchg <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'MonAmtMFCHG';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = amtMfchg;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			SET chrMfchg = COALESCE(THE (SELECT ITEM A.Amt.Item[1]."@CurCd"  
+													FROM rInShpInHURef.ShpDoc.Item[1].CmrcInv.MonAmt.Item[] AS A 
+													WHERE A."@TyCd" = 'MFCHG'), '');
+			IF chrMfchg <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'MonAmtMFCHGCurCd';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrMfchg;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;
+			SET chrClsCd  =   COALESCE(THE (SELECT ITEM B.Val."$"  
+									FROM rInShpInHURef.ShpDoc.Item[1].DatElGrp.Item[] AS A, A.DatEl.Item[] AS B 
+									WHERE A."@Cd" = 'CommonGrp' AND B.Cd = 'TrdTrTy'), '');	
+			IF chrClsCd <> '' THEN 
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Name_Eng = 'TrdTrTy';
+				SET rOutTdocsTdocShpRef.CustomAtts.CustomAtt[cntCustAtt].Val = chrClsCd;
+				SET cntCustAtt = cntCustAtt + 1;
+			END IF;											
+			DECLARE cntDatElGr INTEGER 1;
+			FOR rInShpInHUShpRef AS rInShpInHURef.ShpRef.Item[] DO
+				DECLARE rOutTdocShpMonRef REFERENCE TO rOutTdocsTdocShpRef.DatElGrp[cntDatElGr];
+				CREATE LASTCHILD OF rOutTdocsTdocShpRef AS rOutTdocShpMonRef NAME 'DatElGrp';
+					SET rOutTdocShpMonRef.(XMLNSC.Attribute)Cd = 'Ref';
+					SET rOutTdocShpMonRef.DatEl[1].Cd = 'TyCd';
+					SET rOutTdocShpMonRef.DatEl[1].Val = NULLIF(rInShpInHUShpRef."@TyCd", '');
+					SET rOutTdocShpMonRef.DatEl[2].Cd = 'Ref';
+					SET rOutTdocShpMonRef.DatEl[2].Val = NULLIF(rInShpInHUShpRef.Ref, '');
+			END FOR;
+			
+			SET cntDatElGr = CARDINALITY(rOutTdocsTdocShpRef.DatElGrp[]);									
+			DECLARE cntMon INTEGER 1;
+			DECLARE chrMonCurCd CHARACTER;	
+			FOR rInShpInMonRef AS rInShpInHURef.ShpDoc.Item[1].CmrcInv.MonAmt.Item[] DO
+				SET chrMonCurCd = COALESCE(rInShpInMonRef."@TyCd", '');
+				IF chrMonCurCd <> 'MFCHG' AND chrMonCurCd <> 'TCUSV' AND chrMonCurCd <> 'TINVA' THEN
+					DECLARE rOutTdocShpMonRef REFERENCE TO rOutTdocsTdocShpRef.DatElGrp[cntMon + cntDatElGr];
+					CREATE LASTCHILD OF rOutTdocsTdocShpRef AS rOutTdocShpMonRef NAME 'DatElGrp';
+					SET rOutTdocShpMonRef.(XMLNSC.Attribute)Cd = 'MonAmt';
+					SET rOutTdocShpMonRef.DatEl[1].Cd = 'Amt';
+					SET rOutTdocShpMonRef.DatEl[1].Val = CAST(rInShpInMonRef.Amt.Item[1]."$" AS DECIMAL(15,2));
+					SET rOutTdocShpMonRef.DatEl[2].Cd = 'CurCd';
+					SET rOutTdocShpMonRef.DatEl[2].Val = rInShpInMonRef.Amt.Item[1]."@CurCd";
+					SET rOutTdocShpMonRef.DatEl[3].Cd = 'TyCd';
+					SET rOutTdocShpMonRef.DatEl[3].Val = rInShpInMonRef."@TyCd";
+					SET cntMon = cntMon + 1;					
+				END IF;
+				
+			END FOR;
+			SET cntDatElGr = CARDINALITY(rOutTdocsTdocShpRef.DatElGrp[]);
+			SET cntDatElGr = cntDatElGr + 1;
+			DECLARE chrB2B CHARACTER;
+			SET chrB2B = COALESCE(THE (SELECT ITEM A.Val  
+													FROM rInShpInHURef.ShpDoc.Item[1].DatElGrp.Item[] AS A 
+													WHERE A."@Cd" = 'ShpClss'), '');
+			IF chrB2B <> '' THEN										
+				SET rOutTdocsTdocShpRef.DatElGrp[cntDatElGr].(XMLNSC.Attribute)Cd = 	'ShpClss';
+				SET rOutTdocsTdocShpRef.DatElGrp[cntDatElGr].DatEl[1].Cd = 'ClssTy';
+				SET rOutTdocsTdocShpRef.DatElGrp[cntDatElGr].DatEl[1].Val = COALESCE(THE (SELECT ITEM B.Val  
+													FROM rInShpInHURef.ShpDoc.Item[1].DatElGrp.Item[] AS A, A.DatEl.Item[] AS B 
+													WHERE A."@Cd" = 'ShpClss' AND B.Cd = 'ClssTy'), '');
+				SET rOutTdocsTdocShpRef.DatElGrp[cntDatElGr].DatEl[2].Cd = 'Clss';
+				SET rOutTdocsTdocShpRef.DatElGrp[cntDatElGr].DatEl[2].Val = COALESCE(THE (SELECT ITEM B.Val  
+													FROM rInShpInHURef.ShpDoc.Item[1].DatElGrp.Item[] AS A, A.DatEl.Item[] AS B 
+													WHERE A."@Cd" = 'ShpClss' AND B.Cd = 'Clss'), '');
+			END IF;														
+			DECLARE cntLn INTEGER 1;
+			FOR rInShpInLnRef AS rInShpInHURef.ShpDoc.Item[1].CmrcInv.Ln.Item[] DO
+				IF rInShpInHURef.ShpDoc.Item[1].DocTyCd = 'INV' THEN
+					DECLARE rOutTdocShpLnRef REFERENCE TO rOutTdocsTdocShpRef.LineItems.LineItem[cntLn];
+					CREATE LASTCHILD OF rOutTdocsTdocShpRef.LineItems AS rOutTdocShpLnRef NAME 'LineItem';
+					
+					SET  rOutTdocShpLnRef.TariffCdNo = NULLIF(rInShpInLnRef.CmdtClss.Ib, '');
+					SET  rOutTdocShpLnRef.GoodsItemNo = NULLIF(CAST(rInShpInLnRef.LnNo AS INTEGER), '');
+					SET  rOutTdocShpLnRef.InvNo = rInShpInHURef.ShpDoc.Item[1].DocId;								
+					SET  rOutTdocShpLnRef.TariffQnty = COALESCE(CAST(rInShpInLnRef.Qty."$" AS DECIMAL(15,2)), '0.00');
+					SET  rOutTdocShpLnRef.MeasureUnitQualifier = NULLIF(rInShpInLnRef.Qty."@Uom", '');
+					SET  rOutTdocShpLnRef.DescOfGoods = NULLIF(THE (SELECT ITEM A."$" 
+																		FROM rInShpInLnRef.DscGds.Item[] AS A
+																		WHERE A."@LngCd" = 'ENG'),'');
+					SET  rOutTdocShpLnRef.PartNo = NULLIF(rInShpInLnRef.PartNo."$", '');
+					SET  rOutTdocShpLnRef.ExptClassification = NULLIF(rInShpInLnRef.ExCtlClssNo, '');
+					SET  rOutTdocShpLnRef.CtryMfctrerOrgn = NULLIF(rInShpInLnRef.ManCtryCd, '');
+					SET  rOutTdocShpLnRef.GrossWgt = NULLIF(THE (SELECT ITEM CAST(A.GrossWgt."$" AS DECIMAL)
+																							FROM rInShpInLnRef.Meas.Item[] AS A
+																							WHERE A."@TyCd" = 'TOT'),'');
+					
+					SET  rOutTdocShpLnRef.NetWeight = NULLIF(THE (SELECT ITEM CAST(A.NetWgt."$" AS DECIMAL)
+																							FROM rInShpInLnRef.Meas.Item[] AS A
+																							),'');
+					SET  rOutTdocShpLnRef.InvCrncyCd = NULLIF(rInShpInLnRef.TotVal."@CurCd", '');
+					SET  rOutTdocShpLnRef.InvLineVal = NULLIF(CAST(rInShpInLnRef.TotVal."$" AS DECIMAL), '');
+					SET  rOutTdocShpLnRef.TypeOfDutyRegime = NULLIF(rInShpInLnRef.SpProg.Item[1].Ty, '');
+					SET  rOutTdocShpLnRef.PrevCstmsProcedureCd = NULLIF(rInShpInLnRef.PrevGovProcTyCd, '');
+					SET  rOutTdocShpLnRef.ValuationInd = NULLIF(rInShpInLnRef.VltnMthCd, '');
+					SET  rOutTdocShpLnRef.UnitPrice = NULLIF(THE (SELECT ITEM CAST(A.Amt.Item[1]."$" AS DECIMAL(15,2))
+																							FROM rInShpInLnRef.MonAmt.Item[] AS A
+																							WHERE A."@TyCd" = 'ACUSV'),'');
+					SET  rOutTdocShpLnRef.PreferentialRateFlag = NULLIF(rInShpInLnRef.SpProgInd, '');
+					SET  rOutTdocShpLnRef.CtryOrgnCd = NULLIF(rInShpInLnRef.ManCtryCd, '');
+					SET  rOutTdocShpLnRef.InvoiceDate = NULLIF(SUBSTRING(rInShpInHURef.ShpDoc.Item[1].Dtm."$" FROM 1 FOR 10), '');
+					SET  rOutTdocShpLnRef.InvoiceLineNo = NULLIF(CAST(rInShpInLnRef.LnNo AS INTEGER), '');
+					IF (COALESCE(rInShpInLnRef.Ref.Item[1].Ref."@TyCd", '') <> '' OR COALESCE(rInShpInLnRef.Ref.Item[1].Ref, '') <> '') THEN
+						SET  rOutTdocShpLnRef.UnitIdentification.IdType = NULLIF(rInShpInLnRef.Ref.Item[1]."@TyCd", '');
+						SET  rOutTdocShpLnRef.UnitIdentification.Identifier = NULLIF(rInShpInLnRef.Ref.Item[1].Ref, '');
+					END IF;
+					DECLARE cntLnCustAtt INTEGER 1;
+					IF COALESCE(THE (SELECT ITEM A.GrossWgt."@Uom" FROM rInShpInLnRef.Meas.Item[] AS A WHERE A."@TyCd" = 'TOT'), '') <> '' THEN
+						SET  rOutTdocShpLnRef.LineItemCustom.CustomAtt[cntLnCustAtt].Name_Eng = 'GrossWgtUom';
+						SET  rOutTdocShpLnRef.LineItemCustom.CustomAtt[cntLnCustAtt].value = THE (SELECT ITEM A.GrossWgt."@Uom" FROM rInShpInLnRef.Meas.Item[] AS A WHERE A."@TyCd" = 'TOT');
+						SET cntLnCustAtt = cntLnCustAtt + 1;
+					END IF;
+					IF COALESCE(THE (SELECT ITEM A.NetWgt."@Uom" FROM rInShpInLnRef.Meas.Item[] AS A WHERE A."@TyCd" = 'TOT'), '') <> '' THEN
+						SET  rOutTdocShpLnRef.LineItemCustom.CustomAtt[cntLnCustAtt].Name_Eng = 'NetWgtUom';
+						SET  rOutTdocShpLnRef.LineItemCustom.CustomAtt[cntLnCustAtt].value = THE (SELECT ITEM A.NetWgt."@Uom" FROM rInShpInLnRef.Meas.Item[] AS A WHERE A."@TyCd" = 'TOT');
+						SET cntLnCustAtt = cntLnCustAtt + 1;
+					END IF;
+					IF COALESCE(THE (SELECT ITEM B.Val."$" 
+						FROM rInShpInLnRef.DatElGrp.Item[] AS A, A.DatEl.Item[] AS B
+						 WHERE A."@Cd" = 'St' AND B.Cd = 'StCd'), '') <> '' THEN
+						SET  rOutTdocShpLnRef.LineItemCustom.CustomAtt[cntLnCustAtt].Name_Eng = 'CmdtClssSts';
+						SET  rOutTdocShpLnRef.LineItemCustom.CustomAtt[cntLnCustAtt].value = THE (SELECT ITEM B.Val."$" 
+						FROM rInShpInLnRef.DatElGrp.Item[] AS A, A.DatEl.Item[] AS B
+						 WHERE A."@Cd" = 'St' AND B.Cd = 'StCd');
+						SET cntLnCustAtt = cntLnCustAtt + 1;
+					END IF;
+					IF COALESCE(THE (SELECT ITEM B.Val."$" 
+						FROM rInShpInLnRef.DatElGrp.Item[] AS A, A.DatEl.Item[] AS B
+						 WHERE A."@Cd" = 'CommonGrp' AND B.Cd = 'CmdtClssMthCd'), '') <> '' THEN
+						SET  rOutTdocShpLnRef.LineItemCustom.CustomAtt[cntLnCustAtt].Name_Eng = 'CmdtClssMth';
+						SET  rOutTdocShpLnRef.LineItemCustom.CustomAtt[cntLnCustAtt].value = THE (SELECT ITEM B.Val."$" 
+						FROM rInShpInLnRef.DatElGrp.Item[] AS A, A.DatEl.Item[] AS B
+						 WHERE A."@Cd" = 'CommonGrp' AND B.Cd = 'CmdtClssMthCd');
+						SET cntLnCustAtt = cntLnCustAtt + 1;
+					END IF;															
+				END IF;	
+				SET cntLn = cntLn + 1;		
+			END FOR;
+		END FOR;
+		
+	END;
+
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+/*************************************************************************
+* Function Name: fncRemoveDuplicateShipmentInfo *
+* Parameters: 1. Input Parameter: Shps Reference *
+* *
+* Description: Remove duplicate Shipment info *
+* *
+* Version Date Author Description *
+* =============== =========== ================== ========================*
+* 1 20-03-2023 Krishnama Naidu Initial *
+*************************************************************************/
+CREATE PROCEDURE fncRemoveDuplicateShipmentInfo(IN Shps REFERENCE)
+BEGIN
+	DECLARE tempShps ROW;
+	DECLARE intCount, i, j, curr INT;
+	DECLARE bAdd BOOLEAN;		
+
+
+	SET intCount = CARDINALITY(Shps.Shp[]);
+	SET curr = 1;
+	SET i = 1;
+	WHILE i <= intCount DO
+
+		SET j = 1;
+		SET bAdd = true;
+		WHILE j < curr DO
+			IF tempShps.Shp[j].HAWB = Shps.Shp[i].HAWB THEN
+				SET bAdd = FALSE;
+			END IF;
+			SET j=j+1;
+		END WHILE;
+
+		IF bAdd THEN
+			SET tempShps.Shp[curr] = Shps.Shp[i];
+			SET curr = curr + 1;
+		END IF;
+
+		SET i = i + 1;
+	END WHILE;
+
+	SET Shps.Shp[] = tempShps.Shp[];
+END;
+
+END MODULE;
+/**********************************************************************
+* Node Name: MSXJCM_WCO236_MF *
+* Module Name: MSXJCM_WCO236_MF_DB_REFRESH *
+* Description: This module will refresh the cache *
+* Version Date Author Description *
+* =============== =========== =========== ============================*
+* 1 29-11-2022 Krishnama Naidu Initial *
+**********************************************************************/
+
+CREATE COMPUTE MODULE MSXJCM_WCO236_MF_DB_REFRESH
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		CALL CopyMessageHeaders();
+		SET rowMSXJCM_WCO236_MFlog.valid = null;
+		SET rowRouteInfoMSXJCM_WCO236_MF.valid = null;
+		SET rowFilterInfoMSXJCM_WCO236_MF.valid = null;
+		SET rowConfigMSXJCM_WCO236_MF.valid= null;
+
+		SET OutputRoot.Properties.MessageFormat = 'XML';
+		SET OutputRoot.Properties.MessageSet = '';
+		SET OutputRoot.Properties.MessageType = '';
+
+		SET OutputRoot.XML.(XML.XmlDecl) = '';
+		SET OutputRoot.XML.(XML.XmlDecl).(XML.Version) = '1.0';
+		SET OutputRoot.XML.(XML.XmlDecl).(XML.Encoding) = 'UTF-8';
+
+		SET OutputRoot.XML.Message= ROW('INFO' AS Type,
+		InputRoot.MQMD.SourceQueue AS Source_Queue,
+		CURRENT_TIMESTAMP AS Date_Time,
+		SQL.MessageFlowLabel || ' Cache Data has been refreshed successfully.' AS Description);
+
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+CREATE COMPUTE MODULE MSXJCM_WCO236_MF_ADUIT_OUT
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		
+		-- CALL CopyMessageHeaders();
+		CALL CopyEntireMessage();
+		SET OutputLocalEnvironment = InputLocalEnvironment;
+		SET Environment.FLOW_END_TIME = CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'yyyy-MM-dd HH:mm:ss.SSSSSS');
+		
+		DECLARE intQCount INTEGER CARDINALITY(OutputLocalEnvironment.Destination.MQ.DestinationData[]);
+		IF rowMSXJCM_WCO236_MFlog.LogLevel =1 THEN
+			SET OutputLocalEnvironment.Destination.MQ.DestinationData[intQCount+1].queueName=COALESCE(TRIM(rowMSXJCM_WCO236_MFlog.MsgLogLevel.AUDIT_OUT_QUEUE),'DMGCOMMONAUDITOUT');
+			PROPAGATE TO TERMINAL 0 DELETE NONE;
+			SET OutputLocalEnvironment.Destination.MQ.DestinationData[intQCount+1]=NULL;
+		ELSE
+			PROPAGATE TO TERMINAL 1 DELETE NONE;
+		END IF;
+
+		IF rowMSXJCM_WCO236_MFlog.MsgLogLevel.AUDIT_MSG_LEVEL = 1 THEN
+			SET OutputRoot = NULL;
+			CALL CopyMessageHeaders();
+			SET OutputRoot.Properties.MessageFormat = 'XML';
+			SET OutputRoot.Properties.MessageSet = '';
+			SET OutputRoot.Properties.MessageType = '';
+			DECLARE rEnvRef REFERENCE TO Environment.Variable;
+			SET OutputRoot.XML.MSG = '';
+			SET OutputRoot.XML.MSG.(XML.Attribute)MsgId = InputRoot.MQMD.MsgId;
+			SET OutputRoot.XML.MSG.(XML.Attribute)MsgFlow = COALESCE(TRIM(Environment.MSG_FLOW_NAME),SQL.MessageFlowLabel);
+			SET OutputRoot.XML.MSG.(XML.Attribute)ProcessDtm = CURRENT_TIMESTAMP;
+			SET OutputRoot.XML.MSG.(XML.Attribute)StrTm = NULLIF(COALESCE(TRIM(Environment.FLOW_START_TIME),''),'');
+			SET OutputRoot.XML.MSG.(XML.Attribute)EndTm = NULLIF(COALESCE(TRIM(Environment.FLOW_END_TIME),''),'');
+			SET OutputRoot.XML.MSG.AddInf[1].Nm = 'MvmtNo';
+			SET OutputRoot.XML.MSG.AddInf[1].Val = COALESCE(rEnvRef.MvmtNo, '');
+			SET OutputRoot.XML.MSG.AddInf[2].Nm = 'ORI_APP';
+			SET OutputRoot.XML.MSG.AddInf[2].Val = COALESCE(rEnvRef.ORI_APP, '');
+			SET OutputRoot.XML.MSG.AddInf[3].Nm  = 'MSG_TYPE';
+			SET OutputRoot.XML.MSG.AddInf[3].Val = COALESCE(rEnvRef.MSG_TYPE, '');
+			SET OutputRoot.XML.MSG.AddInf[4].Nm  = 'ORI_CTRY';
+			SET OutputRoot.XML.MSG.AddInf[4].Val = COALESCE(rEnvRef.MvmtOrigin.DATA.COUNTRY, '');
+			DECLARE intCurQueue INTEGER 1;
+			DECLARE actCurQueue INTEGER CARDINALITY(InputLocalEnvironment.Destination.MQ.DestinationData[]);
+
+			WHILE intCurQueue <= actCurQueue DO
+				SET OutputRoot.XML.MSG.Queue[intCurQueue] = InputLocalEnvironment.Destination.MQ.DestinationData[intCurQueue].queueName;
+				SET intCurQueue = intCurQueue + 1;
+			END WHILE;
+
+			SET OutputLocalEnvironment = NULL;
+			SET OutputLocalEnvironment.Destination.MQ.DestinationData[1].queueName = COALESCE(TRIM(rowMSXJCM_WCO236_MFlog.MsgLogLevel.AUDIT_OUT_MSG_QUEUE),'DMGOUTPUTMSGLOG');
+
+			PROPAGATE TO TERMINAL 2;
+		END IF;
+		RETURN FALSE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;

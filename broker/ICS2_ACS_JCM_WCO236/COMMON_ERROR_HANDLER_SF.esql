@@ -1,0 +1,308 @@
+
+/**********************************************************************
+* © COPYRIGHT DHL 2006. ALL RIGHTS RESERVED. NO PART OF THIS SOURCE   *
+* CODE MAY BE REPRODUCED,STORED IN A RETRIEVAL SYSTEM OR TRANSMITTED, *
+* IN ANY FORM BY ANY MEANS, ELECTRONIC, MECHANICAL, PHOTO COPYING,    *
+* RECORDING OR OTHERWISE, WITHOUT THE PRIOR WRITTEN PERMISSION OF DHL *       
+**********************************************************************/
+CREATE FUNCTION isDatabaseException(IN InputTree reference,OUT messageNumber integer,
+OUT messageText char) 
+RETURNS BOOLEAN
+    /****************************************************************************
+	 * A procedure that will get the details of the last exception from a message
+	 * IN InputTree:  The incoming exception list
+	 * IN messageNumber:  The last message numberr.
+	 * IN messageText: The last message text.
+	 *****************************************************************************/
+   BEGIN
+   		DECLARE bRet BOOLEAN FALSE;
+   		
+   	    -- Create a reference to the first child of the exception list
+   	    declare ptrException reference to InputTree.*[1];
+   	    -- keep looping while the moves to the child of exception list work 
+		WHILE lastmove(ptrException) DO
+			-- store the current values for the error number and text
+			IF ptrException.Number is not null THEN
+        		SET messageNumber = ptrException.Number;
+        		SET messageText = ptrException.Text;
+        		
+        		IF FIELDNAME(ptrException) = 'DatabaseException' THEN
+        			SET bRet = TRUE;
+        		END IF;
+  			END IF;
+  			-- now move to the last child which should be the next exceptionlist
+  			
+			move ptrException lastchild;
+		END WHILE; 
+		
+		return bRet;
+	END;
+
+CREATE PROCEDURE getLastExceptionDetail(IN InputTree reference,OUT messageNumber integer,
+OUT messageText char)	
+    /****************************************************************************
+	 * A procedure that will get the details of the last exception from a message
+	 * IN InputTree:  The incoming exception list
+	 * IN messageNumber:  The last message numberr.
+	 * IN messageText: The last message text.
+	 *****************************************************************************/
+   BEGIN
+   	    -- Create a reference to the first child of the exception list
+   	    declare ptrException reference to InputTree.*[1];
+   	    -- keep looping while the moves to the child of exception list work 
+		WHILE lastmove(ptrException) DO
+			-- store the current values for the error number and text
+			IF ptrException.Number is not null THEN
+        		SET messageNumber = ptrException.Number;
+        		SET messageText = ptrException.Text;
+  			END IF;
+  			-- now move to the last child which should be the next exceptionlist
+			move ptrException lastchild;
+		END WHILE; 
+   END;
+   
+/**********************************************************************
+* Node Name:		COMMON_ERROR_HANDLER_SF                           *
+* Module Name:		COMMON_ERROR_HANDLER_SF_Compute                   *
+* Description:		This module will construct Error message in XML   *
+*                   format                                            *                                                        
+* Version		   Date		   Author	    Description               *
+* =============== =========== =========== ============================*
+* 1             21-08-2006  Ben Ng  Initial                           *
+* 2             15-01-2011  Kong Yew/Ee Von      DMG3.0.0             *
+**********************************************************************/  
+CREATE COMPUTE MODULE COMMON_ERROR_HANDLER_SF_Process
+	
+	DECLARE DB_REPROCESS_SLEEPTIME EXTERNAL INTEGER '5';
+	DECLARE QUEUE_BACKOUT_COUNT EXTERNAL INTEGER '3';
+	
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		-- CALL CopyMessageHeaders();
+		CALL CopyEntireMessage();
+		SET OutputExceptionList = InputExceptionList;
+		
+		DECLARE messageNumber integer;
+		DECLARE messageText char;
+		DECLARE isDBerror boolean;
+		
+		SET isDBerror = isDatabaseException(InputExceptionList, messageNumber, messageText);
+		
+		IF isDBerror THEN			
+				
+			IF ( InputRoot.MQMD.BackoutCount < QUEUE_BACKOUT_COUNT-1 ) THEN
+
+				-- Sleep time in ms, configured value in seconds, multiply 1000
+				IF NOT SLEEP(DB_REPROCESS_SLEEPTIME * 1000) THEN
+					
+				END IF;
+
+				RETURN TRUE;			
+			ELSE
+				PROPAGATE TO TERMINAL 1;
+				RETURN FALSE;
+			END IF;
+		END IF;
+		
+
+		IF InputRoot.MQMD.BackoutCount > 0 THEN
+			RETURN TRUE;			
+		ELSE
+			PROPAGATE TO TERMINAL 1;
+			RETURN FALSE;
+		END IF;
+				
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+
+
+/**********************************************************************
+* Node Name:		COMMON_ERROR_HANDLER_SF                           *
+* Module Name:		COMMON_ERROR_HANDLER_SF_Compute                   *
+* Description:		This module will construct Error message in XML   *
+*                   format                                            *                                                        
+* Version		Date		Author	Description                       *
+* =============== =========== =========== ============================*
+* 1             21-08-2006  Ben Ng  Initial                           *
+**********************************************************************/  
+CREATE COMPUTE MODULE COMMON_ERROR_HANDLER_SF_Compute
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+	
+		SET OutputRoot.Properties.MessageDomain = 'XML';
+		SET OutputRoot.Properties.MessageSet = '';
+		SET OutputRoot.Properties.MessageType = '';
+		
+		SET OutputRoot.MQMD.MsgId = InputRoot.MQMD.MsgId;
+		SET OutputRoot.MQMD.Format = 'MQSTR';
+		SET OutputRoot.XML.(XML.XmlDecl) = '';
+		SET OutputRoot.XML.(XML.XmlDecl).(XML.Version)  = '1.0';
+		SET OutputRoot.XML.(XML.XmlDecl).(XML.Encoding) = 'UTF-8';
+				
+		DECLARE Error INTEGER;  /* Error number extracted from exception list */
+		SET Error = 0;
+		DECLARE Path CHARACTER;  /* Current path within the exception list */
+
+		-- Check if msg has a body
+		DECLARE msgbody BLOB;
+		DECLARE noBody BOOLEAN;
+		DECLARE J INTEGER CARDINALITY(InputRoot.*[]);
+		
+		SET noBody = FALSE;
+		IF FIELDNAME (InputRoot.*[<]) = 'MQMD' OR FIELDNAME (InputRoot.*[<]) = 'MQRFH2' THEN
+			SET OutputRoot.*[J] = InputRoot.*[J]; /* copy last child since CopyMessageHeaders did not */
+			SET noBody = TRUE;
+		END IF;
+
+		/* Start at first child of exception list */
+		SET Path = 'InputExceptionList.*[1]';
+		
+		/* Loop until no more children */
+		WHILE EVAL( 'FIELDNAME(' || Path || ') IS NOT NULL' ) DO
+			/* Check if error number is available */
+			IF EVAL( 'FIELDNAME(' || Path || '.Number) IS NOT NULL' ) THEN
+				/* Remember only the deepest error number */
+				SET Error = EVAL( Path || '.Number' );
+			END IF;
+		
+			/* Step to last child of current element (usually a nested exception list */
+			SET Path = Path || '.*[<]';
+		END WHILE; /* End loop */
+
+		-- Build error message in XML format
+		
+		SET OutputRoot.XML.Message.Type = 'ERROR';
+		SET OutputRoot.XML.Message.Source_Queue = InputRoot.MQMD.SourceQueue;
+		SET OutputRoot.XML.Message.Date_Time = CURRENT_TIMESTAMP;
+		IF Error <> 0 THEN
+			SET OutputRoot.XML.Message.ExceptionNumber = Error;
+		END IF;
+		
+		IF NULLIF(Environment.ErrorDetected,'') IS NOT NULL THEN
+			SET OutputRoot.XML.Message.ErrorDetected = Environment.ErrorDetected;
+		END IF;
+		
+	
+		/* Insert original message using XML.CDataSection.. in case special characters are present. */
+		IF noBody THEN
+			SET OutputRoot.XML.Message.OriginalMessage = 'No message body';
+		ELSE
+			SET msgbody = X'';
+			IF FIELDNAME(InputRoot.*[<]) = 'BLOB' THEN
+				SET msgbody = InputRoot."BLOB"."BLOB";
+			ELSE
+				SET msgbody = BITSTREAM(InputBody);
+			END IF;
+		END IF;
+		
+		
+		/* Insert full exceptionlist tree in msg */
+		
+		IF FIELDNAME(InputExceptionList.*[1]) IS NOT NULL THEN
+			SET OutputRoot.XML.Message.ExceptionList = InputExceptionList;
+		END IF;
+		
+		IF ( OutputRoot.XML.Message.ExceptionList.RecoverableException.RecoverableException.RecoverableException.RecoverableException.Insert[3].Type IS NOT NULL ) THEN
+			SET OutputRoot.XML.Message.ExceptionList.RecoverableException.RecoverableException.RecoverableException.RecoverableException.Insert[3].Type='5' ;
+			SET OutputRoot.XML.Message.ExceptionList.RecoverableException.RecoverableException.RecoverableException.RecoverableException.Insert[3].Text='THROW EXCEPTION CATALOG &apos;InvalidMessage&apos; MESSAGE 9999 VALUES( &apos;ErrorObject&apos;, Environment.Variable.ErrorObject);' ;		
+		END IF ;
+		RETURN TRUE;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+	
+	END MODULE;
+
+/**********************************************************************
+* Node Name:		COMMON_ERROR_HANDLER_SF                           *
+* Module Name:		COMMON_ERROR_HANDLER_SF_MainlineFilter            *
+* Description:		This module will validate whether the message     *
+*                   is error message.                                 *
+*                   return false                                      *
+* Version		Date		Author	Description                       *
+* =============== =========== =========== ============================*
+* 1             21-08-2006  Ben Ng  Initial                           *
+**********************************************************************/
+CREATE FILTER MODULE COMMON_ERROR_HANDLER_SF_Filter
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		DECLARE messageNumber integer;
+		DECLARE messageText char;
+		DECLARE isDBerror boolean;
+		
+		SET isDBerror = isDatabaseException(ExceptionList, messageNumber, messageText);
+		
+		IF Root.MQMD.BackoutCount > 0 THEN
+			/* AND
+			ExceptionList.RecoverableException.Number IS NOT NULL AND
+			ExceptionList.RecoverableException.Number = 2652 THEN */
+			RETURN TRUE; /* this is the result of rollback generated in error handling */
+		ELSE
+			IF ExceptionList.RecoverableException.UserException.Number IS NOT NULL AND
+				ExceptionList.RecoverableException.UserException.Number = 3049 THEN
+				RETURN TRUE; /* this is the result of throw in error handling */
+			ELSE
+				RETURN FALSE;
+			END IF;
+		END IF;
+	END;
+
+END MODULE;
+
+/**********************************************************************
+* Node Name:		COMMON_ERROR_HANDLER_SF                           *
+* Module Name:		COMMON_ERROR_HANDLER_SF_MainlineFilter            *
+* Description:		This module will validate whether the message     *
+*                   backoutcount is equal 0. If yes, return True, else*
+*                   return false                                      *
+* Version		Date		Author	Description                       *
+* =============== =========== =========== ============================*
+* 1             21-08-2006  Ben Ng  Initial                           *
+**********************************************************************/
+
+CREATE FILTER MODULE COMMON_ERROR_HANDLER_SF_MainlineFilter
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		--IF Root.MQMD.BackoutCount =0 THEN
+			RETURN TRUE;
+		--ELSE 
+		--	RETURN FALSE;
+		--END IF;
+	END;
+
+
+
+END MODULE;
+
+
+
+
+
+
